@@ -63,6 +63,37 @@ CREATE TABLE IF NOT EXISTS trusted_sources (
     login_url TEXT NOT NULL,
     enabled INTEGER NOT NULL DEFAULT 1
 );
+
+CREATE TABLE IF NOT EXISTS gmail_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER,
+    gmail_message_id TEXT NOT NULL,
+    thread_id TEXT NOT NULL,
+    sender TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    received_at TEXT,
+    labels_json TEXT NOT NULL,
+    was_unread_at_discovery INTEGER NOT NULL DEFAULT 1,
+    source_key TEXT NOT NULL,
+    processing_status TEXT NOT NULL,
+    failure_reason TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (run_id) REFERENCES runs(id)
+);
+
+CREATE TABLE IF NOT EXISTS article_links (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    gmail_message_id INTEGER NOT NULL,
+    source_key TEXT NOT NULL,
+    raw_url TEXT NOT NULL,
+    normalized_url TEXT NOT NULL,
+    detection_method TEXT NOT NULL,
+    detection_confidence REAL NOT NULL,
+    heuristic_notes TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (gmail_message_id) REFERENCES gmail_messages(id)
+);
 """
 
 

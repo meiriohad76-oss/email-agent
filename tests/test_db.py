@@ -22,4 +22,6 @@ def test_initialize_database_creates_foundation_tables(tmp_path):
         "watchlist_uploads",
         "watchlist_items",
         "trusted_sources",
+        "gmail_messages",
+        "article_links",
     }.issubset(table_names(db_path))

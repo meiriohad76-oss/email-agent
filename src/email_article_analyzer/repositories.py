@@ -131,3 +131,90 @@ class WatchlistRepository:
                 "SELECT * FROM watchlist_items ORDER BY normalized_ticker"
             ).fetchall()
         return [dict(row) for row in rows]
+
+
+class GmailDiscoveryRepository:
+    def __init__(self, database_path: str):
+        self.database_path = database_path
+
+    def save_message(
+        self,
+        run_id: int | None,
+        gmail_message_id: str,
+        thread_id: str,
+        sender: str,
+        subject: str,
+        labels: list[str],
+        source_key: str,
+        processing_status: str,
+        received_at: str | None = None,
+        failure_reason: str | None = None,
+    ) -> int:
+        with connect(self.database_path) as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO gmail_messages (
+                    run_id, gmail_message_id, thread_id, sender, subject, received_at,
+                    labels_json, source_key, processing_status, failure_reason
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    run_id,
+                    gmail_message_id,
+                    thread_id,
+                    sender,
+                    subject,
+                    received_at,
+                    json.dumps(labels),
+                    source_key,
+                    processing_status,
+                    failure_reason,
+                ),
+            )
+            return int(cursor.lastrowid)
+
+    def save_article_link(
+        self,
+        gmail_message_row_id: int,
+        source_key: str,
+        raw_url: str,
+        normalized_url: str,
+        detection_method: str,
+        detection_confidence: float,
+        heuristic_notes: str | None,
+    ) -> int:
+        with connect(self.database_path) as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO article_links (
+                    gmail_message_id, source_key, raw_url, normalized_url,
+                    detection_method, detection_confidence, heuristic_notes
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    gmail_message_row_id,
+                    source_key,
+                    raw_url,
+                    normalized_url,
+                    detection_method,
+                    detection_confidence,
+                    heuristic_notes,
+                ),
+            )
+            return int(cursor.lastrowid)
+
+    def get_message(self, row_id: int) -> dict[str, Any]:
+        with connect(self.database_path) as conn:
+            row = conn.execute("SELECT * FROM gmail_messages WHERE id = ?", (row_id,)).fetchone()
+        if row is None:
+            raise KeyError(f"Gmail message not found: {row_id}")
+        return dict(row)
+
+    def get_article_link(self, row_id: int) -> dict[str, Any]:
+        with connect(self.database_path) as conn:
+            row = conn.execute("SELECT * FROM article_links WHERE id = ?", (row_id,)).fetchone()
+        if row is None:
+            raise KeyError(f"Article link not found: {row_id}")
+        return dict(row)
