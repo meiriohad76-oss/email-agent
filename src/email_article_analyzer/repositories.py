@@ -72,6 +72,34 @@ class RunRepository:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def complete_run(self, run_id: int, status: str = "completed") -> None:
+        with connect(self.database_path) as conn:
+            conn.execute(
+                """
+                UPDATE runs
+                SET status = ?, completed_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (status, run_id),
+            )
+
+    def discovery_counts(self, run_id: int) -> dict[str, int]:
+        with connect(self.database_path) as conn:
+            gmail_messages = conn.execute(
+                "SELECT COUNT(*) FROM gmail_messages WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()[0]
+            article_links = conn.execute(
+                """
+                SELECT COUNT(*)
+                FROM article_links
+                JOIN gmail_messages ON gmail_messages.id = article_links.gmail_message_id
+                WHERE gmail_messages.run_id = ?
+                """,
+                (run_id,),
+            ).fetchone()[0]
+        return {"gmail_messages": int(gmail_messages), "article_links": int(article_links)}
+
 
 class WatchlistRepository:
     def __init__(self, database_path: str):
