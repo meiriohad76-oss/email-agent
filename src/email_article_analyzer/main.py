@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 
 from email_article_analyzer.api.health import router as health_router
+from email_article_analyzer.api.watchlist import router as watchlist_router
 from email_article_analyzer.config import AppConfig
 from email_article_analyzer.db import initialize_database
 
@@ -13,6 +14,7 @@ def create_app(database_path: str | None = None) -> FastAPI:
     app = FastAPI(title="Email Article Analyzer")
     app.state.database_path = resolved_database_path
     app.include_router(health_router)
+    app.include_router(watchlist_router)
     return app
 
 
