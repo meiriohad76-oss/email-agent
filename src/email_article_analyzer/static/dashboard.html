@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Email Article Analyzer</title>
+    <link rel="stylesheet" href="/static/dashboard.css">
+  </head>
+  <body>
+    <main class="dashboard-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Local stock article intelligence</p>
+          <h1>Email Article Analyzer</h1>
+        </div>
+        <div class="status-pill" id="health-status">Checking API</div>
+      </header>
+
+      <section class="dashboard-grid">
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Watchlist Upload</h2>
+            <span class="panel-kicker">CSV or XLSX</span>
+          </div>
+          <form id="watchlist-upload" class="stack">
+            <label for="watchlist-file">Watchlist file</label>
+            <input id="watchlist-file" name="file" type="file" accept=".csv,.xlsx" required>
+            <button type="submit">Upload and preview</button>
+          </form>
+          <pre id="watchlist-result" class="result-box" aria-live="polite"></pre>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Start Discovery Run</h2>
+            <span class="panel-kicker">Gmail discovery</span>
+          </div>
+          <form id="run-start-form" class="stack">
+            <label for="extraction-model">Extraction model</label>
+            <input id="extraction-model" name="extraction_model" type="text" placeholder="gpt-5.4">
+            <label for="summary-model">Summary model</label>
+            <input id="summary-model" name="summary_model" type="text" placeholder="gpt-5.4-mini">
+            <button type="submit">Start run</button>
+          </form>
+          <pre id="run-start-result" class="result-box" aria-live="polite"></pre>
+        </section>
+
+        <section class="panel wide">
+          <div class="panel-header">
+            <h2>Run Lookup</h2>
+            <span class="panel-kicker">Status and events</span>
+          </div>
+          <form id="run-lookup-form" class="inline-form">
+            <label for="run-id">Run ID</label>
+            <input id="run-id" name="run_id" type="number" min="1" required>
+            <button type="submit">Load run</button>
+          </form>
+          <pre id="run-lookup-result" class="result-box large" aria-live="polite"></pre>
+        </section>
+      </section>
+    </main>
+    <script src="/static/dashboard.js"></script>
+  </body>
+</html>
