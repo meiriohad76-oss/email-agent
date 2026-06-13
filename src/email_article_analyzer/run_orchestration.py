@@ -1,0 +1,106 @@
+from dataclasses import dataclass
+
+from email_article_analyzer.gmail import GmailCandidate
+from email_article_analyzer.repositories import GmailDiscoveryRepository, RunRepository
+
+
+@dataclass(frozen=True)
+class RunResult:
+    run_id: int
+    status: str
+    candidate_count: int
+    needed_source_logins: list[str]
+
+
+class RunOrchestrator:
+    def __init__(
+        self,
+        run_repository: RunRepository,
+        gmail_repository: GmailDiscoveryRepository,
+        discovery_service,
+    ):
+        self.run_repository = run_repository
+        self.gmail_repository = gmail_repository
+        self.discovery_service = discovery_service
+
+    def start_discovery_run(
+        self,
+        extraction_model: str | None,
+        summary_model: str | None,
+    ) -> RunResult:
+        run_id = self.run_repository.create_run(
+            extraction_model=extraction_model,
+            summary_model=summary_model,
+        )
+        self.run_repository.add_event(
+            run_id=run_id,
+            event_type="run_started",
+            stage="startup",
+            message="Run started",
+            details={
+                "extraction_model": extraction_model,
+                "summary_model": summary_model,
+            },
+        )
+        self.run_repository.add_event(
+            run_id=run_id,
+            event_type="gmail_search_started",
+            stage="gmail_discovery",
+            message="Gmail discovery started",
+        )
+
+        candidates = self.discovery_service.discover_candidates()
+        for candidate in candidates:
+            self._persist_candidate(run_id, candidate)
+
+        self.run_repository.complete_run(run_id)
+        self.run_repository.add_event(
+            run_id=run_id,
+            event_type="run_completed",
+            stage="completion",
+            message="Run completed",
+            details={"candidate_count": len(candidates)},
+        )
+        return RunResult(
+            run_id=run_id,
+            status="completed",
+            candidate_count=len(candidates),
+            needed_source_logins=sorted(
+                {candidate.source.source_key for candidate in candidates}
+            ),
+        )
+
+    def _persist_candidate(self, run_id: int, candidate: GmailCandidate) -> None:
+        message = candidate.message
+        message_row_id = self.gmail_repository.save_message(
+            run_id=run_id,
+            gmail_message_id=message.message_id,
+            thread_id=message.thread_id,
+            sender=message.sender,
+            subject=message.subject,
+            labels=message.labels,
+            source_key=candidate.source.source_key,
+            processing_status="discovered",
+        )
+        self.gmail_repository.save_article_link(
+            gmail_message_row_id=message_row_id,
+            source_key=candidate.source.source_key,
+            raw_url=candidate.headline_link.url,
+            normalized_url=candidate.headline_link.url,
+            detection_method=candidate.headline_link.detection_method,
+            detection_confidence=candidate.headline_link.detection_confidence,
+            heuristic_notes=None,
+        )
+        self.run_repository.add_event(
+            run_id=run_id,
+            event_type="headline_link_detected",
+            stage="gmail_discovery",
+            message="Headline link detected",
+            entity_type="gmail_message",
+            entity_id=message.message_id,
+            details={
+                "source_key": candidate.source.source_key,
+                "url": candidate.headline_link.url,
+                "detection_method": candidate.headline_link.detection_method,
+            },
+        )
