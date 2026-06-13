@@ -4,6 +4,30 @@ from collections.abc import Iterable
 from email_article_analyzer.gmail import GmailMessage
 
 
+class GmailApiProvider:
+    def __init__(self, service, user_id: str = "me"):
+        self.service = service
+        self.user_id = user_id
+
+    def search_unread_messages(self, query: str) -> list[GmailMessage]:
+        response = (
+            self.service.users()
+            .messages()
+            .list(userId=self.user_id, q=query)
+            .execute()
+        )
+        messages: list[GmailMessage] = []
+        for item in response.get("messages", []):
+            raw_message = (
+                self.service.users()
+                .messages()
+                .get(userId=self.user_id, id=item["id"], format="full")
+                .execute()
+            )
+            messages.append(parse_gmail_message(raw_message))
+        return messages
+
+
 def parse_gmail_message(raw_message: dict) -> GmailMessage:
     payload = raw_message.get("payload", {})
     headers = _headers_by_name(payload.get("headers", []))
