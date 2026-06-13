@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 import csv
 from io import BytesIO, StringIO
+import json
 import re
 
 from openpyxl import load_workbook
@@ -56,3 +57,108 @@ def _parse_xlsx(content: bytes) -> ParsedWatchlist:
         if any(mapped.values()):
             rows.append(mapped)
     return ParsedWatchlist(columns=columns, rows=rows)
+
+
+@dataclass(frozen=True)
+class ValidWatchlistRow:
+    raw_ticker: str
+    normalized_ticker: str
+    values: dict[str, str]
+    polygon_reference: dict
+
+
+@dataclass(frozen=True)
+class InvalidWatchlistRow:
+    raw_ticker: str
+    values: dict[str, str]
+    reason: str
+
+
+@dataclass(frozen=True)
+class WatchlistValidationResult:
+    valid_rows: list[ValidWatchlistRow]
+    invalid_rows: list[InvalidWatchlistRow]
+
+
+class WatchlistService:
+    def __init__(self, repository, polygon_validator):
+        self.repository = repository
+        self.polygon_validator = polygon_validator
+
+    def validate(
+        self,
+        parsed: ParsedWatchlist,
+        ticker_column: str,
+        optional_columns: dict[str, str],
+    ) -> WatchlistValidationResult:
+        valid_rows: list[ValidWatchlistRow] = []
+        invalid_rows: list[InvalidWatchlistRow] = []
+
+        for row in parsed.rows:
+            raw_ticker = row.get(ticker_column, "")
+            normalized = normalize_ticker(raw_ticker)
+            if not normalized:
+                invalid_rows.append(InvalidWatchlistRow(raw_ticker, row, "Missing ticker"))
+                continue
+            polygon_reference = self.polygon_validator.validate_ticker(normalized)
+            if polygon_reference is None:
+                invalid_rows.append(
+                    InvalidWatchlistRow(
+                        raw_ticker,
+                        row,
+                        "Polygon did not recognize ticker",
+                    )
+                )
+                continue
+            valid_rows.append(
+                ValidWatchlistRow(
+                    raw_ticker=raw_ticker,
+                    normalized_ticker=normalized,
+                    values=row,
+                    polygon_reference=polygon_reference,
+                )
+            )
+        return WatchlistValidationResult(valid_rows=valid_rows, invalid_rows=invalid_rows)
+
+    def replace_active_watchlist(
+        self,
+        original_filename: str,
+        parsed: ParsedWatchlist,
+        ticker_column: str,
+        optional_columns: dict[str, str],
+    ) -> WatchlistValidationResult:
+        result = self.validate(parsed, ticker_column, optional_columns)
+        upload_id = self.repository.create_upload(
+            original_filename=original_filename,
+            columns=parsed.columns,
+            sample_rows=parsed.rows[:5],
+            row_count=len(parsed.rows),
+        )
+        items = []
+        for row in result.valid_rows:
+            values = row.values
+            items.append(
+                {
+                    "ticker": row.raw_ticker,
+                    "normalized_ticker": row.normalized_ticker,
+                    "company_name": _optional_value(values, optional_columns, "company_name"),
+                    "sector": _optional_value(values, optional_columns, "sector"),
+                    "priority": _optional_value(values, optional_columns, "priority"),
+                    "notes": _optional_value(values, optional_columns, "notes"),
+                    "polygon_reference": json.dumps(row.polygon_reference, sort_keys=True),
+                }
+            )
+        self.repository.replace_items(upload_id, items)
+        return result
+
+
+def _optional_value(
+    values: dict[str, str],
+    optional_columns: dict[str, str],
+    field_name: str,
+) -> str | None:
+    column_name = optional_columns.get(field_name)
+    if not column_name:
+        return None
+    value = values.get(column_name)
+    return value or None
