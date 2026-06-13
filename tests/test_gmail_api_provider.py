@@ -27,6 +27,25 @@ class FakeMessages:
         self.service.calls.append(("messages.get", userId, id, format))
         return FakeExecute(self.service.messages[id])
 
+    def modify(self, userId, id, body):
+        self.service.calls.append(("messages.modify", userId, id, body))
+        return FakeExecute({"id": id})
+
+
+class FakeLabels:
+    def __init__(self, service):
+        self.service = service
+
+    def list(self, userId):
+        self.service.calls.append(("labels.list", userId))
+        return FakeExecute({"labels": self.service.labels})
+
+    def create(self, userId, body):
+        self.service.calls.append(("labels.create", userId, body))
+        label = {"id": f"Label_{len(self.service.labels) + 1}", "name": body["name"]}
+        self.service.labels.append(label)
+        return FakeExecute(label)
+
 
 class FakeUsers:
     def __init__(self, service):
@@ -35,10 +54,14 @@ class FakeUsers:
     def messages(self):
         return FakeMessages(self.service)
 
+    def labels(self):
+        return FakeLabels(self.service)
+
 
 class FakeGmailService:
-    def __init__(self, messages):
+    def __init__(self, messages, labels=None):
         self.messages = messages
+        self.labels = labels or []
         self.calls = []
 
     def users(self):
@@ -118,3 +141,54 @@ def test_gmail_api_provider_searches_and_reads_messages():
     assert [message.message_id for message in messages] == ["msg-1"]
     assert ("messages.list", "me", "is:unread") in service.calls
     assert ("messages.get", "me", "msg-1", "full") in service.calls
+
+
+def test_gmail_api_provider_adds_existing_label_by_name():
+    service = FakeGmailService(messages={}, labels=[{"id": "Label_1", "name": "Analyzed"}])
+    provider = GmailApiProvider(service=service)
+
+    provider.add_label("msg-1", "Analyzed")
+
+    assert ("labels.list", "me") in service.calls
+    assert (
+        "messages.modify",
+        "me",
+        "msg-1",
+        {"addLabelIds": ["Label_1"], "removeLabelIds": []},
+    ) in service.calls
+
+
+def test_gmail_api_provider_creates_missing_label_before_adding():
+    service = FakeGmailService(messages={}, labels=[])
+    provider = GmailApiProvider(service=service)
+
+    provider.add_label("msg-1", "Analysis Failed")
+
+    assert ("labels.create", "me", {"name": "Analysis Failed"}) in service.calls
+    assert (
+        "messages.modify",
+        "me",
+        "msg-1",
+        {"addLabelIds": ["Label_1"], "removeLabelIds": []},
+    ) in service.calls
+
+
+def test_gmail_api_provider_removes_label_and_marks_read():
+    service = FakeGmailService(messages={}, labels=[{"id": "Label_2", "name": "Analysis Failed"}])
+    provider = GmailApiProvider(service=service)
+
+    provider.remove_label("msg-1", "Analysis Failed")
+    provider.mark_read("msg-1")
+
+    assert (
+        "messages.modify",
+        "me",
+        "msg-1",
+        {"addLabelIds": [], "removeLabelIds": ["Label_2"]},
+    ) in service.calls
+    assert (
+        "messages.modify",
+        "me",
+        "msg-1",
+        {"addLabelIds": [], "removeLabelIds": ["UNREAD"]},
+    ) in service.calls

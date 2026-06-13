@@ -8,6 +8,7 @@ class GmailApiProvider:
     def __init__(self, service, user_id: str = "me"):
         self.service = service
         self.user_id = user_id
+        self._label_cache: dict[str, str] | None = None
 
     def search_unread_messages(self, query: str) -> list[GmailMessage]:
         response = (
@@ -26,6 +27,60 @@ class GmailApiProvider:
             )
             messages.append(parse_gmail_message(raw_message))
         return messages
+
+    def add_label(self, message_id: str, label: str) -> None:
+        label_id = self._ensure_label_id(label)
+        self._modify_message(message_id, add_label_ids=[label_id], remove_label_ids=[])
+
+    def remove_label(self, message_id: str, label: str) -> None:
+        label_id = self._ensure_label_id(label)
+        self._modify_message(message_id, add_label_ids=[], remove_label_ids=[label_id])
+
+    def mark_read(self, message_id: str) -> None:
+        self._modify_message(message_id, add_label_ids=[], remove_label_ids=["UNREAD"])
+
+    def _ensure_label_id(self, label_name: str) -> str:
+        labels = self._labels_by_name()
+        if label_name in labels:
+            return labels[label_name]
+        created = (
+            self.service.users()
+            .labels()
+            .create(userId=self.user_id, body={"name": label_name})
+            .execute()
+        )
+        label_id = created["id"]
+        labels[label_name] = label_id
+        return label_id
+
+    def _labels_by_name(self) -> dict[str, str]:
+        if self._label_cache is None:
+            response = self.service.users().labels().list(userId=self.user_id).execute()
+            self._label_cache = {
+                label["name"]: label["id"]
+                for label in response.get("labels", [])
+            }
+        return self._label_cache
+
+    def _modify_message(
+        self,
+        message_id: str,
+        add_label_ids: list[str],
+        remove_label_ids: list[str],
+    ) -> None:
+        (
+            self.service.users()
+            .messages()
+            .modify(
+                userId=self.user_id,
+                id=message_id,
+                body={
+                    "addLabelIds": add_label_ids,
+                    "removeLabelIds": remove_label_ids,
+                },
+            )
+            .execute()
+        )
 
 
 def parse_gmail_message(raw_message: dict) -> GmailMessage:
