@@ -20,6 +20,84 @@ function writeResult(id, value) {
     typeof value === "string" ? value : formatJson(value);
 }
 
+function setRunDetailStatus(message, isError = false) {
+  const status = document.getElementById("run-detail-status");
+  status.textContent = message;
+  status.classList.toggle("error-text", isError);
+}
+
+function metricCard(label, value) {
+  const card = document.createElement("div");
+  card.className = "metric-card";
+  const cardLabel = document.createElement("span");
+  cardLabel.className = "metric-label";
+  cardLabel.textContent = label;
+  const cardValue = document.createElement("strong");
+  cardValue.textContent = value ?? "-";
+  card.append(cardLabel, cardValue);
+  return card;
+}
+
+function renderSourceLoginWarnings(events) {
+  const list = document.getElementById("source-login-warning-list");
+  list.replaceChildren();
+  const warnings = events.filter((event) => event.event_type === "source_login_needed");
+  if (!warnings.length) {
+    return;
+  }
+  const heading = document.createElement("h3");
+  heading.textContent = "Source login needed";
+  list.append(heading);
+  warnings.forEach((event) => {
+    const item = document.createElement("div");
+    item.className = "warning-item";
+    item.textContent = event.message;
+    list.append(item);
+  });
+}
+
+function renderEventTimeline(events) {
+  const timeline = document.getElementById("run-event-timeline");
+  timeline.replaceChildren();
+  if (!events.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty-state";
+    empty.textContent = "No events recorded for this run.";
+    timeline.append(empty);
+    return;
+  }
+  events.forEach((event) => {
+    const row = document.createElement("div");
+    row.className = "event-timeline-row";
+    const meta = document.createElement("div");
+    meta.className = "event-meta";
+    meta.textContent = `${event.created_at} - ${event.stage} - ${event.severity}`;
+    const message = document.createElement("div");
+    message.className = "event-message";
+    message.textContent = event.message;
+    row.append(meta, message);
+    timeline.append(row);
+  });
+}
+
+function renderRunDetail(payload) {
+  const run = payload.run;
+  const counts = payload.counts || {};
+  const events = payload.events || [];
+  const summary = document.getElementById("run-detail-summary");
+  summary.replaceChildren(
+    metricCard("Run", `#${run.id}`),
+    metricCard("Status", run.status),
+    metricCard("Emails", counts.gmail_messages ?? 0),
+    metricCard("Links", counts.article_links ?? 0),
+    metricCard("Extraction model", run.extraction_model),
+    metricCard("Summary model", run.summary_model),
+  );
+  renderSourceLoginWarnings(events);
+  renderEventTimeline(events);
+  setRunDetailStatus(`Loaded run #${run.id}`);
+}
+
 function renderRecentRuns(runs) {
   const list = document.getElementById("recent-runs-list");
   list.replaceChildren();
@@ -126,12 +204,12 @@ document.getElementById("run-start-form").addEventListener("submit", async (even
 document.getElementById("run-lookup-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const runId = document.getElementById("run-id").value;
-  writeResult("run-lookup-result", "Loading run...");
+  setRunDetailStatus("Loading run...");
   try {
     const payload = await fetchJson(`/api/runs/${runId}`);
-    writeResult("run-lookup-result", payload);
+    renderRunDetail(payload);
   } catch (error) {
-    writeResult("run-lookup-result", error.message);
+    setRunDetailStatus(error.message, true);
   }
 });
 
@@ -142,12 +220,12 @@ document.getElementById("recent-runs-list").addEventListener("click", async (eve
   }
   const runId = row.dataset.runId;
   document.getElementById("run-id").value = runId;
-  writeResult("run-lookup-result", "Loading run...");
+  setRunDetailStatus("Loading run...");
   try {
     const payload = await fetchJson(`/api/runs/${runId}`);
-    writeResult("run-lookup-result", payload);
+    renderRunDetail(payload);
   } catch (error) {
-    writeResult("run-lookup-result", error.message);
+    setRunDetailStatus(error.message, true);
   }
 });
 

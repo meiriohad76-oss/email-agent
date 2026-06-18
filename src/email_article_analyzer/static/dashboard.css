@@ -167,6 +167,81 @@ h2 {
   min-height: 180px;
 }
 
+.inline-status {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  min-height: 20px;
+  padding-top: 12px;
+}
+
+.metric-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 12px;
+}
+
+.metric-card {
+  border: 1px solid var(--line);
+  display: grid;
+  gap: 6px;
+  min-height: 76px;
+  padding: 12px;
+}
+
+.metric-label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.metric-card strong {
+  font-size: 16px;
+  overflow-wrap: anywhere;
+}
+
+.warning-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.warning-list h3 {
+  color: var(--danger);
+  font-size: 14px;
+  margin: 0;
+}
+
+.warning-item {
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  color: #7c2d12;
+  padding: 10px 12px;
+}
+
+.event-timeline {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.event-timeline-row {
+  border-left: 3px solid var(--accent);
+  background: #f9fbfb;
+  padding: 10px 12px;
+}
+
+.event-meta {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.event-message {
+  margin-top: 4px;
+}
+
 .run-list {
   display: grid;
   gap: 8px;
@@ -224,7 +299,8 @@ h2 {
   }
 
   .dashboard-grid,
-  .inline-form {
+  .inline-form,
+  .metric-grid {
     grid-template-columns: 1fr;
   }
 

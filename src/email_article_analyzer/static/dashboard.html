@@ -55,7 +55,10 @@
             <input id="run-id" name="run_id" type="number" min="1" required>
             <button type="submit">Load run</button>
           </form>
-          <pre id="run-lookup-result" class="result-box large" aria-live="polite"></pre>
+          <div id="run-detail-status" class="inline-status" aria-live="polite"></div>
+          <div id="run-detail-summary" class="metric-grid"></div>
+          <div id="source-login-warning-list" class="warning-list"></div>
+          <div id="run-event-timeline" class="event-timeline"></div>
         </section>
 
         <section class="panel wide">

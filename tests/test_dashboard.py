@@ -14,6 +14,8 @@ def test_dashboard_route_serves_operational_shell(tmp_path):
     assert "watchlist-upload" in response.text
     assert "run-start-form" in response.text
     assert "run-lookup-form" in response.text
+    assert "run-detail-summary" in response.text
+    assert "run-event-timeline" in response.text
 
 
 def test_dashboard_assets_are_served(tmp_path):
@@ -28,3 +30,6 @@ def test_dashboard_assets_are_served(tmp_path):
     assert js_response.status_code == 200
     assert "watchlist-upload" in js_response.text
     assert "recent-runs-list" in js_response.text
+    assert "renderRunDetail" in js_response.text
+    assert "source-login-warning-list" in js_response.text
+    assert "event-timeline-row" in css_response.text
