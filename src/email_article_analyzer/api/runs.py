@@ -3,6 +3,8 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from email_article_analyzer.api.status import missing_essential_providers
+from email_article_analyzer.api.status import provider_status
 from email_article_analyzer.repositories import RunRepository
 
 router = APIRouter(prefix="/api/runs", tags=["runs"])
@@ -15,6 +17,17 @@ class CreateRunRequest(BaseModel):
 
 @router.post("")
 def create_run(payload: CreateRunRequest, request: Request) -> dict[str, Any]:
+    readiness = provider_status(request.app.state.config)
+    missing_providers = missing_essential_providers(readiness)
+    if missing_providers:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "Essential providers are not ready",
+                "missing_essential_providers": missing_providers,
+                "provider_status": readiness,
+            },
+        )
     orchestrator = getattr(request.app.state, "run_orchestrator", None)
     if orchestrator is None:
         raise HTTPException(

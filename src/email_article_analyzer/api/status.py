@@ -42,6 +42,15 @@ def provider_status(config: AppConfig) -> dict[str, Any]:
     return {"overall_status": overall_status, "providers": providers}
 
 
+def missing_essential_providers(status_payload: dict[str, Any]) -> list[str]:
+    providers = status_payload.get("providers", {})
+    return [
+        provider_key
+        for provider_key in ("openai", "gmail")
+        if providers.get(provider_key, {}).get("status") != "ready"
+    ]
+
+
 @router.get("/providers")
 def get_provider_status(request: Request) -> dict[str, Any]:
     config = getattr(request.app.state, "config", AppConfig.from_env())

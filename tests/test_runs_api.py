@@ -20,7 +20,18 @@ class FakeRunOrchestrator:
         )
 
 
-def test_create_run_endpoint_starts_discovery_run(tmp_path):
+def configure_ready_essentials(tmp_path, monkeypatch):
+    credentials_path = tmp_path / "gmail_credentials.json"
+    token_path = tmp_path / "gmail_token.json"
+    credentials_path.write_text("{}", encoding="utf-8")
+    token_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-key")
+    monkeypatch.setenv("GMAIL_CREDENTIALS_PATH", str(credentials_path))
+    monkeypatch.setenv("GMAIL_TOKEN_PATH", str(token_path))
+
+
+def test_create_run_endpoint_starts_discovery_run(tmp_path, monkeypatch):
+    configure_ready_essentials(tmp_path, monkeypatch)
     fake_orchestrator = FakeRunOrchestrator()
     app = create_app(
         database_path=str(tmp_path / "app.db"),
@@ -41,6 +52,27 @@ def test_create_run_endpoint_starts_discovery_run(tmp_path):
         "needed_source_logins": ["seeking_alpha", "zacks"],
     }
     assert fake_orchestrator.calls == [("gpt-extract", "gpt-summary")]
+
+
+def test_create_run_endpoint_rejects_when_essential_providers_are_not_ready(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("GMAIL_CREDENTIALS_PATH", str(tmp_path / "missing_credentials.json"))
+    monkeypatch.setenv("GMAIL_TOKEN_PATH", str(tmp_path / "missing_token.json"))
+    fake_orchestrator = FakeRunOrchestrator()
+    app = create_app(
+        database_path=str(tmp_path / "app.db"),
+        run_orchestrator=fake_orchestrator,
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/runs",
+        json={"extraction_model": "gpt-extract", "summary_model": "gpt-summary"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["missing_essential_providers"] == ["openai", "gmail"]
+    assert fake_orchestrator.calls == []
 
 
 def test_get_run_endpoint_returns_status_counts_and_events(tmp_path):
