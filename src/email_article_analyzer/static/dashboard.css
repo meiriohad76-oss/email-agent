@@ -226,6 +226,39 @@ h2 {
   margin-top: 14px;
 }
 
+.article-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.article-list h3 {
+  font-size: 14px;
+  margin: 0;
+}
+
+.article-row {
+  border: 1px solid var(--line);
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+}
+
+.article-title {
+  font-weight: 700;
+}
+
+.article-meta {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.article-row a {
+  color: var(--accent);
+  overflow-wrap: anywhere;
+}
+
 .event-timeline-row {
   border-left: 3px solid var(--accent);
   background: #f9fbfb;

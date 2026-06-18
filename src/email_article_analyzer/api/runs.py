@@ -58,4 +58,5 @@ def get_run(run_id: int, request: Request) -> dict[str, Any]:
         "run": run,
         "counts": repository.discovery_counts(run_id),
         "events": repository.list_events(run_id),
+        "articles": repository.list_discovered_articles(run_id),
     }

@@ -80,10 +80,53 @@ function renderEventTimeline(events) {
   });
 }
 
+function renderArticleRows(articles) {
+  const list = document.getElementById("run-article-list");
+  list.replaceChildren();
+  const heading = document.createElement("h3");
+  heading.textContent = "Discovered articles";
+  list.append(heading);
+  if (!articles.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty-state";
+    empty.textContent = "No article links discovered for this run.";
+    list.append(empty);
+    return;
+  }
+  articles.forEach((article) => {
+    const row = document.createElement("div");
+    row.className = "article-row";
+
+    const title = document.createElement("div");
+    title.className = "article-title";
+    title.textContent = article.subject;
+
+    const meta = document.createElement("div");
+    meta.className = "article-meta";
+    meta.textContent = [
+      article.source_key,
+      article.sender,
+      article.message_status,
+      `${Math.round((article.detection_confidence ?? 0) * 100)}% confidence`,
+      article.detection_method,
+    ].join(" - ");
+
+    const link = document.createElement("a");
+    link.href = article.normalized_url;
+    link.target = "_blank";
+    link.rel = "noreferrer";
+    link.textContent = article.normalized_url;
+
+    row.append(title, meta, link);
+    list.append(row);
+  });
+}
+
 function renderRunDetail(payload) {
   const run = payload.run;
   const counts = payload.counts || {};
   const events = payload.events || [];
+  const articles = payload.articles || [];
   const summary = document.getElementById("run-detail-summary");
   summary.replaceChildren(
     metricCard("Run", `#${run.id}`),
@@ -94,6 +137,7 @@ function renderRunDetail(payload) {
     metricCard("Summary model", run.summary_model),
   );
   renderSourceLoginWarnings(events);
+  renderArticleRows(articles);
   renderEventTimeline(events);
   setRunDetailStatus(`Loaded run #${run.id}`);
 }

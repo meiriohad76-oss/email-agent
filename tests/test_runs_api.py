@@ -80,6 +80,19 @@ def test_get_run_endpoint_returns_status_counts_and_events(tmp_path):
     assert payload["run"]["status"] == "running"
     assert payload["counts"] == {"gmail_messages": 1, "article_links": 1}
     assert payload["events"][0]["event_type"] == "run_started"
+    assert payload["articles"] == [
+        {
+            "article_link_id": 1,
+            "gmail_message_id": "msg-1",
+            "sender": "alerts@seekingalpha.com",
+            "subject": "Story",
+            "message_status": "discovered",
+            "source_key": "seeking_alpha",
+            "normalized_url": "https://seekingalpha.com/article/1",
+            "detection_method": "headline_anchor",
+            "detection_confidence": 0.9,
+        }
+    ]
 
 
 def test_list_runs_endpoint_returns_recent_runs_with_counts(tmp_path):

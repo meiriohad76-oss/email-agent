@@ -112,6 +112,29 @@ class RunRepository:
             ).fetchone()[0]
         return {"gmail_messages": int(gmail_messages), "article_links": int(article_links)}
 
+    def list_discovered_articles(self, run_id: int) -> list[dict[str, Any]]:
+        with connect(self.database_path) as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    article_links.id AS article_link_id,
+                    gmail_messages.gmail_message_id,
+                    gmail_messages.sender,
+                    gmail_messages.subject,
+                    gmail_messages.processing_status AS message_status,
+                    article_links.source_key,
+                    article_links.normalized_url,
+                    article_links.detection_method,
+                    article_links.detection_confidence
+                FROM article_links
+                JOIN gmail_messages ON gmail_messages.id = article_links.gmail_message_id
+                WHERE gmail_messages.run_id = ?
+                ORDER BY article_links.id
+                """,
+                (run_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
 
 class WatchlistRepository:
     def __init__(self, database_path: str):
