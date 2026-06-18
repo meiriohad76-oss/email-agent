@@ -64,6 +64,18 @@ class RunRepository:
             raise KeyError(f"Run not found: {run_id}")
         return dict(row)
 
+    def list_recent_runs(self, limit: int = 10) -> list[dict[str, Any]]:
+        with connect(self.database_path) as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM runs
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def list_events(self, run_id: int) -> list[dict[str, Any]]:
         with connect(self.database_path) as conn:
             rows = conn.execute(

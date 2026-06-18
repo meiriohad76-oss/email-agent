@@ -33,6 +33,20 @@ def create_run(payload: CreateRunRequest, request: Request) -> dict[str, Any]:
     }
 
 
+@router.get("")
+def list_runs(request: Request) -> dict[str, Any]:
+    repository = RunRepository(request.app.state.database_path)
+    return {
+        "runs": [
+            {
+                **run,
+                "counts": repository.discovery_counts(run["id"]),
+            }
+            for run in repository.list_recent_runs()
+        ]
+    }
+
+
 @router.get("/{run_id}")
 def get_run(run_id: int, request: Request) -> dict[str, Any]:
     repository = RunRepository(request.app.state.database_path)

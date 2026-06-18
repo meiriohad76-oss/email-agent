@@ -167,6 +167,55 @@ h2 {
   min-height: 180px;
 }
 
+.run-list {
+  display: grid;
+  gap: 8px;
+}
+
+.run-row {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid var(--line);
+  color: var(--text);
+  cursor: pointer;
+  display: grid;
+  font: inherit;
+  gap: 12px;
+  grid-template-columns: 72px 100px 1fr 1fr minmax(180px, 2fr);
+  min-height: 44px;
+  padding: 10px 12px;
+  text-align: left;
+}
+
+.run-row:hover,
+.run-row:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.run-id {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.run-status {
+  background: #e8f4ed;
+  color: var(--ok);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 3px 8px;
+  text-align: center;
+}
+
+.empty-state {
+  color: var(--muted);
+  margin: 0;
+}
+
+.error-text {
+  color: var(--danger);
+}
+
 @media (max-width: 760px) {
   .topbar,
   .panel-header {
@@ -176,6 +225,10 @@ h2 {
 
   .dashboard-grid,
   .inline-form {
+    grid-template-columns: 1fr;
+  }
+
+  .run-row {
     grid-template-columns: 1fr;
   }
 }

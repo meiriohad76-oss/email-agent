@@ -80,3 +80,43 @@ def test_get_run_endpoint_returns_status_counts_and_events(tmp_path):
     assert payload["run"]["status"] == "running"
     assert payload["counts"] == {"gmail_messages": 1, "article_links": 1}
     assert payload["events"][0]["event_type"] == "run_started"
+
+
+def test_list_runs_endpoint_returns_recent_runs_with_counts(tmp_path):
+    db_path = str(tmp_path / "app.db")
+    initialize_database(db_path)
+    run_repo = RunRepository(db_path)
+    gmail_repo = GmailDiscoveryRepository(db_path)
+    older_run_id = run_repo.create_run("older-extract", "older-summary")
+    newer_run_id = run_repo.create_run("newer-extract", "newer-summary")
+    run_repo.complete_run(newer_run_id)
+    message_row_id = gmail_repo.save_message(
+        run_id=newer_run_id,
+        gmail_message_id="msg-2",
+        thread_id="thread-2",
+        sender="alerts@zacks.com",
+        subject="Newer Story",
+        labels=["UNREAD"],
+        source_key="zacks",
+        processing_status="discovered",
+    )
+    gmail_repo.save_article_link(
+        gmail_message_row_id=message_row_id,
+        source_key="zacks",
+        raw_url="https://www.zacks.com/article/2",
+        normalized_url="https://www.zacks.com/article/2",
+        detection_method="headline_anchor",
+        detection_confidence=0.91,
+        heuristic_notes=None,
+    )
+    app = create_app(database_path=db_path)
+    client = TestClient(app)
+
+    response = client.get("/api/runs")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [run["id"] for run in payload["runs"]] == [newer_run_id, older_run_id]
+    assert payload["runs"][0]["status"] == "completed"
+    assert payload["runs"][0]["counts"] == {"gmail_messages": 1, "article_links": 1}
+    assert payload["runs"][1]["counts"] == {"gmail_messages": 0, "article_links": 0}

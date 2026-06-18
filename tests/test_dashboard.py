@@ -27,3 +27,4 @@ def test_dashboard_assets_are_served(tmp_path):
     assert "dashboard-shell" in css_response.text
     assert js_response.status_code == 200
     assert "watchlist-upload" in js_response.text
+    assert "recent-runs-list" in js_response.text
