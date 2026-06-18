@@ -1,5 +1,7 @@
+from contextlib import contextmanager
 from pathlib import Path
 import sqlite3
+from typing import Iterator
 
 
 SCHEMA = """
@@ -126,11 +128,19 @@ CREATE TABLE IF NOT EXISTS article_analyses (
 """
 
 
-def connect(database_path: str) -> sqlite3.Connection:
+@contextmanager
+def connect(database_path: str) -> Iterator[sqlite3.Connection]:
     conn = sqlite3.connect(database_path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
-    return conn
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def initialize_database(database_path: str) -> None:

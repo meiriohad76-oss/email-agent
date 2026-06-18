@@ -59,7 +59,21 @@ $env:PYTHONPATH='src'; python -m email_article_analyzer.cli setup-status
 
 The command prints missing items and next steps. The dashboard shows the same provider readiness checklist above the Start Run button.
 
-## 6. Start the Dashboard
+## 6. Run the Smoke Check
+
+Before starting a live dashboard session, verify the app can initialize its database and serve the core routes:
+
+```powershell
+$env:PYTHONPATH='src'; python scripts/smoke_live_product.py
+```
+
+Expected output:
+
+```text
+Live product smoke check passed
+```
+
+## 7. Start the Dashboard
 
 Run:
 

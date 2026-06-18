@@ -27,3 +27,12 @@ def test_initialize_database_creates_foundation_tables(tmp_path):
         "article_contents",
         "article_analyses",
     }.issubset(table_names(db_path))
+
+
+def test_initialize_database_closes_connection_handles(tmp_path):
+    db_path = tmp_path / "app.db"
+
+    initialize_database(str(db_path))
+    db_path.unlink()
+
+    assert not db_path.exists()

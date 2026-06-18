@@ -76,3 +76,5 @@ def test_first_run_setup_doc_has_required_steps():
     assert "GMAIL_TOKEN_PATH" in doc
     assert "python -m email_article_analyzer.cli gmail-auth" in doc
     assert "python -m email_article_analyzer.cli setup-status" in doc
+    assert "python scripts/smoke_live_product.py" in doc
+    assert "python -m uvicorn email_article_analyzer.main:app --host 127.0.0.1 --port 8000" in doc
