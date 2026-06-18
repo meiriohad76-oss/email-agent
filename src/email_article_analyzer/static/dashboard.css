@@ -167,6 +167,43 @@ h2 {
   min-height: 180px;
 }
 
+.provider-status-list {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.provider-status-item {
+  border: 1px solid var(--line);
+  display: grid;
+  gap: 4px;
+  grid-template-columns: 1fr max-content;
+  padding: 10px 12px;
+}
+
+.provider-status-item strong {
+  text-transform: capitalize;
+}
+
+.provider-status-item span {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.provider-status-item small {
+  color: var(--muted);
+  grid-column: 1 / -1;
+}
+
+.provider-status-item.ready {
+  border-color: #b7e4c7;
+}
+
+.provider-status-item.missing,
+.provider-status-item.action_required {
+  border-color: #fed7aa;
+}
+
 .inline-status {
   color: var(--muted);
   font-size: 13px;

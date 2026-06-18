@@ -20,6 +20,39 @@ function writeResult(id, value) {
     typeof value === "string" ? value : formatJson(value);
 }
 
+function renderProviderStatus(payload) {
+  const list = document.getElementById("provider-status-list");
+  list.replaceChildren();
+  Object.entries(payload.providers || {}).forEach(([key, provider]) => {
+    const item = document.createElement("div");
+    item.className = `provider-status-item ${provider.status}`;
+    const name = document.createElement("strong");
+    name.textContent = key.replace("_", " ");
+    const status = document.createElement("span");
+    status.textContent = provider.status;
+    item.append(name, status);
+    (provider.details || []).forEach((detail) => {
+      const note = document.createElement("small");
+      note.textContent = detail;
+      item.append(note);
+    });
+    list.append(item);
+  });
+}
+
+async function refreshProviderStatus() {
+  const list = document.getElementById("provider-status-list");
+  try {
+    const payload = await fetchJson("/api/status/providers");
+    renderProviderStatus(payload);
+  } catch (error) {
+    const item = document.createElement("div");
+    item.className = "provider-status-item missing";
+    item.textContent = error.message;
+    list.replaceChildren(item);
+  }
+}
+
 function setRunDetailStatus(message, isError = false) {
   const status = document.getElementById("run-detail-status");
   status.textContent = message;
@@ -274,4 +307,5 @@ document.getElementById("recent-runs-list").addEventListener("click", async (eve
 });
 
 checkHealth();
+refreshProviderStatus();
 refreshRecentRuns();

@@ -13,6 +13,7 @@ def test_dashboard_route_serves_operational_shell(tmp_path):
     assert "Email Article Analyzer" in response.text
     assert "watchlist-upload" in response.text
     assert "run-start-form" in response.text
+    assert "provider-status-list" in response.text
     assert "run-lookup-form" in response.text
     assert "run-detail-summary" in response.text
     assert "run-event-timeline" in response.text
@@ -31,6 +32,8 @@ def test_dashboard_assets_are_served(tmp_path):
     assert js_response.status_code == 200
     assert "watchlist-upload" in js_response.text
     assert "recent-runs-list" in js_response.text
+    assert "refreshProviderStatus" in js_response.text
+    assert "provider-status-item" in css_response.text
     assert "renderRunDetail" in js_response.text
     assert "renderArticleRows" in js_response.text
     assert "source-login-warning-list" in js_response.text
