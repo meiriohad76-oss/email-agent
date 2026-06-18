@@ -21,12 +21,22 @@ class FakeArticleAnalyzer:
     def __init__(self):
         self.calls = []
 
-    def analyze_article(self, url, source_key, email_subject, model):
+    def analyze_article(
+        self,
+        url,
+        source_key,
+        email_subject,
+        article_title,
+        article_text,
+        model,
+    ):
         self.calls.append(
             {
                 "url": url,
                 "source_key": source_key,
                 "email_subject": email_subject,
+                "article_title": article_title,
+                "article_text": article_text,
                 "model": model,
             }
         )
@@ -40,6 +50,22 @@ class FakeArticleAnalyzer:
             mentioned_tickers=["NVDA"],
             raw_response={"id": "resp-1"},
         )
+
+
+class FakeArticleContent:
+    final_url = "https://seekingalpha.com/article/1"
+    http_status = 200
+    title = "Story title"
+    extracted_text = "Nvidia raised guidance. Gross margin expanded."
+
+
+class FakeArticleContentFetcher:
+    def __init__(self):
+        self.calls = []
+
+    def fetch(self, url):
+        self.calls.append(url)
+        return FakeArticleContent()
 
 
 def test_run_orchestrator_persists_candidates_events_and_needed_logins(tmp_path):
@@ -117,6 +143,7 @@ def test_run_orchestrator_analyzes_discovered_headline_link_when_analyzer_is_con
     )
     discovery_service = FakeDiscoveryService([candidate])
     analyzer = FakeArticleAnalyzer()
+    content_fetcher = FakeArticleContentFetcher()
     run_repo = RunRepository(db_path)
     gmail_repo = GmailDiscoveryRepository(db_path)
     orchestrator = RunOrchestrator(
@@ -124,6 +151,7 @@ def test_run_orchestrator_analyzes_discovered_headline_link_when_analyzer_is_con
         gmail_repository=gmail_repo,
         discovery_service=discovery_service,
         article_analyzer=analyzer,
+        article_content_fetcher=content_fetcher,
     )
 
     result = orchestrator.start_discovery_run(
@@ -131,11 +159,14 @@ def test_run_orchestrator_analyzes_discovered_headline_link_when_analyzer_is_con
         summary_model="gpt-summary",
     )
 
+    assert content_fetcher.calls == ["https://seekingalpha.com/article/1"]
     assert analyzer.calls == [
         {
             "url": "https://seekingalpha.com/article/1",
             "source_key": "seeking_alpha",
             "email_subject": "Story",
+            "article_title": "Story title",
+            "article_text": "Nvidia raised guidance. Gross margin expanded.",
             "model": "gpt-summary",
         }
     ]
@@ -144,9 +175,13 @@ def test_run_orchestrator_analyzes_discovered_headline_link_when_analyzer_is_con
         "run_started",
         "gmail_search_started",
         "headline_link_detected",
+        "article_content_extracted",
         "article_analyzed",
         "run_completed",
     ]
+    content = gmail_repo.get_article_content(1)
+    assert content["title"] == "Story title"
+    assert content["text_char_count"] == len("Nvidia raised guidance. Gross margin expanded.")
     analysis = gmail_repo.get_article_analysis(1)
     assert analysis["summary"] == "Margins improved after a stronger guide."
     assert analysis["stance"] == "buy_watch"

@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
 from email_article_analyzer.article_analysis import ArticleAnalyzer
+from email_article_analyzer.article_content import ArticleContentFetcherProtocol
 from email_article_analyzer.gmail import GmailCandidate
 from email_article_analyzer.repositories import GmailDiscoveryRepository, RunRepository
 
@@ -20,11 +21,13 @@ class RunOrchestrator:
         gmail_repository: GmailDiscoveryRepository,
         discovery_service,
         article_analyzer: ArticleAnalyzer | None = None,
+        article_content_fetcher: ArticleContentFetcherProtocol | None = None,
     ):
         self.run_repository = run_repository
         self.gmail_repository = gmail_repository
         self.discovery_service = discovery_service
         self.article_analyzer = article_analyzer
+        self.article_content_fetcher = article_content_fetcher
 
     def start_discovery_run(
         self,
@@ -115,10 +118,41 @@ class RunOrchestrator:
         if self.article_analyzer is None:
             return
 
+        article_title = None
+        article_text = None
+        if self.article_content_fetcher is not None:
+            content = self.article_content_fetcher.fetch(candidate.headline_link.url)
+            content_id = self.gmail_repository.save_article_content(
+                article_link_id=article_link_id,
+                fetch_status="fetched",
+                final_url=content.final_url,
+                http_status=content.http_status,
+                title=content.title,
+                extracted_text=content.extracted_text,
+                failure_reason=None,
+            )
+            article_title = content.title
+            article_text = content.extracted_text
+            self.run_repository.add_event(
+                run_id=run_id,
+                event_type="article_content_extracted",
+                stage="article_content",
+                message="Article content extracted",
+                entity_type="article_link",
+                entity_id=str(article_link_id),
+                details={
+                    "content_id": content_id,
+                    "text_char_count": len(content.extracted_text),
+                    "http_status": content.http_status,
+                },
+            )
+
         analysis = self.article_analyzer.analyze_article(
             url=candidate.headline_link.url,
             source_key=candidate.source.source_key,
             email_subject=message.subject,
+            article_title=article_title,
+            article_text=article_text,
             model=summary_model,
         )
         analysis_id = self.gmail_repository.save_article_analysis(

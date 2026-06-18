@@ -282,6 +282,46 @@ class GmailDiscoveryRepository:
             raise KeyError(f"Article link not found: {row_id}")
         return dict(row)
 
+    def save_article_content(
+        self,
+        article_link_id: int,
+        fetch_status: str,
+        final_url: str | None,
+        http_status: int | None,
+        title: str | None,
+        extracted_text: str | None,
+        failure_reason: str | None,
+    ) -> int:
+        text = extracted_text or ""
+        with connect(self.database_path) as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO article_contents (
+                    article_link_id, fetch_status, final_url, http_status, title,
+                    extracted_text, text_char_count, failure_reason
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    article_link_id,
+                    fetch_status,
+                    final_url,
+                    http_status,
+                    title,
+                    extracted_text,
+                    len(text),
+                    failure_reason,
+                ),
+            )
+            return int(cursor.lastrowid)
+
+    def get_article_content(self, row_id: int) -> dict[str, Any]:
+        with connect(self.database_path) as conn:
+            row = conn.execute("SELECT * FROM article_contents WHERE id = ?", (row_id,)).fetchone()
+        if row is None:
+            raise KeyError(f"Article content not found: {row_id}")
+        return dict(row)
+
     def save_article_analysis(
         self,
         article_link_id: int,

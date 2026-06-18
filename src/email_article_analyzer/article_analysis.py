@@ -21,6 +21,8 @@ class ArticleAnalyzer(Protocol):
         url: str,
         source_key: str,
         email_subject: str,
+        article_title: str | None,
+        article_text: str | None,
         model: str | None,
     ) -> ArticleAnalysisResult:
         pass
@@ -71,6 +73,8 @@ class OpenAIArticleAnalyzer:
         url: str,
         source_key: str,
         email_subject: str,
+        article_title: str | None,
+        article_text: str | None,
         model: str | None,
     ) -> ArticleAnalysisResult:
         response = self.client.responses.create(
@@ -90,6 +94,8 @@ class OpenAIArticleAnalyzer:
                         f"Source: {source_key}\n"
                         f"Email headline: {email_subject}\n"
                         f"Article URL: {url}\n"
+                        f"Article title: {article_title or 'Unknown'}\n"
+                        f"Article text:\n{article_text or 'No article text extracted.'}\n"
                     ),
                 },
             ],

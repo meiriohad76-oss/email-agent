@@ -99,4 +99,5 @@ def test_create_run_orchestrator_wires_openai_analyzer_when_api_key_exists(tmp_p
     )
 
     assert orchestrator.article_analyzer is not None
+    assert orchestrator.article_content_fetcher is not None
     assert orchestrator.article_analyzer.client["api_key"] == "openai-key"

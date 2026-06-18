@@ -38,6 +38,8 @@ def test_openai_article_analyzer_requests_strict_structured_output():
         url="https://example.com/article",
         source_key="example",
         email_subject="NVDA raises guidance",
+        article_title="NVDA raises guidance",
+        article_text="Nvidia raised its revenue outlook. Gross margin expanded.",
         model="gpt-summary",
     )
 
@@ -45,6 +47,10 @@ def test_openai_article_analyzer_requests_strict_structured_output():
     assert call["model"] == "gpt-summary"
     assert call["text"]["format"]["type"] == "json_schema"
     assert call["text"]["format"]["strict"] is True
+    user_content = call["input"][1]["content"]
+    assert "Article title: NVDA raises guidance" in user_content
+    assert "Article text:" in user_content
+    assert "Gross margin expanded" in user_content
     assert result.provider == "openai"
     assert result.model == "gpt-summary"
     assert result.summary == "Margins improved after a stronger guide."
@@ -73,5 +79,7 @@ def test_openai_article_analyzer_rejects_high_confidence_without_two_evidence_it
             url="https://example.com/article",
             source_key="example",
             email_subject="NVDA raises guidance",
+            article_title=None,
+            article_text="Raised guide.",
             model="gpt-summary",
         )

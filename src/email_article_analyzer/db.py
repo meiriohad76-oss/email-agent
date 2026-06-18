@@ -95,6 +95,20 @@ CREATE TABLE IF NOT EXISTS article_links (
     FOREIGN KEY (gmail_message_id) REFERENCES gmail_messages(id)
 );
 
+CREATE TABLE IF NOT EXISTS article_contents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    article_link_id INTEGER NOT NULL,
+    fetch_status TEXT NOT NULL,
+    final_url TEXT,
+    http_status INTEGER,
+    title TEXT,
+    extracted_text TEXT,
+    text_char_count INTEGER NOT NULL DEFAULT 0,
+    failure_reason TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (article_link_id) REFERENCES article_links(id)
+);
+
 CREATE TABLE IF NOT EXISTS article_analyses (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     article_link_id INTEGER NOT NULL,

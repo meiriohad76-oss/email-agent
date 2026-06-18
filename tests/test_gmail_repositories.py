@@ -80,3 +80,46 @@ def test_gmail_repository_saves_article_analysis(tmp_path):
     assert analysis["confidence"] == 0.82
     assert analysis["supporting_evidence_json"] == '["Raised FY guide", "Gross margin expanded"]'
     assert analysis["mentioned_tickers_json"] == '["NVDA"]'
+
+
+def test_gmail_repository_saves_article_content(tmp_path):
+    db_path = str(tmp_path / "app.db")
+    initialize_database(db_path)
+    repo = GmailDiscoveryRepository(db_path)
+    gmail_row_id = repo.save_message(
+        run_id=None,
+        gmail_message_id="msg-1",
+        thread_id="thread-1",
+        sender="alerts@seekingalpha.com",
+        subject="Story",
+        labels=["UNREAD"],
+        source_key="seeking_alpha",
+        processing_status="discovered",
+    )
+    link_id = repo.save_article_link(
+        gmail_message_row_id=gmail_row_id,
+        source_key="seeking_alpha",
+        raw_url="https://seekingalpha.com/article/1",
+        normalized_url="https://seekingalpha.com/article/1",
+        detection_method="headline_anchor",
+        detection_confidence=0.9,
+        heuristic_notes="h1 anchor",
+    )
+
+    content_id = repo.save_article_content(
+        article_link_id=link_id,
+        fetch_status="fetched",
+        final_url="https://seekingalpha.com/article/1",
+        http_status=200,
+        title="Story",
+        extracted_text="A long article body.",
+        failure_reason=None,
+    )
+
+    content = repo.get_article_content(content_id)
+
+    assert content["article_link_id"] == link_id
+    assert content["fetch_status"] == "fetched"
+    assert content["http_status"] == 200
+    assert content["title"] == "Story"
+    assert content["text_char_count"] == len("A long article body.")

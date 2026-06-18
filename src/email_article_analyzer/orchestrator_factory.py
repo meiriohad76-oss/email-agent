@@ -6,6 +6,7 @@ from googleapiclient.discovery import build
 
 from email_article_analyzer.auth import GMAIL_SCOPES
 from email_article_analyzer.article_analysis import OpenAIArticleAnalyzer
+from email_article_analyzer.article_content import ArticleContentFetcher
 from email_article_analyzer.config import AppConfig
 from email_article_analyzer.gmail import GmailDiscoveryService
 from email_article_analyzer.providers.gmail_api import GmailApiProvider
@@ -35,16 +36,19 @@ def create_run_orchestrator(
         sources=TRUSTED_SOURCES,
     )
     article_analyzer = None
+    article_content_fetcher = None
     if config.openai_api_key:
         client_factory = openai_client_factory or _create_openai_client
         article_analyzer = OpenAIArticleAnalyzer(
             client=client_factory(config.openai_api_key),
         )
+        article_content_fetcher = ArticleContentFetcher()
     return RunOrchestrator(
         run_repository=RunRepository(database_path),
         gmail_repository=GmailDiscoveryRepository(database_path),
         discovery_service=discovery_service,
         article_analyzer=article_analyzer,
+        article_content_fetcher=article_content_fetcher,
     )
 
 
