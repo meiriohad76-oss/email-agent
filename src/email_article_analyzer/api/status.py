@@ -8,14 +8,22 @@ from email_article_analyzer.config import AppConfig
 router = APIRouter(prefix="/api/status", tags=["status"])
 
 
-def _provider(status: str, details: list[str]) -> dict[str, Any]:
-    return {"status": status, "details": details}
+def _provider(
+    status: str,
+    details: list[str],
+    setup_steps: list[str] | None = None,
+) -> dict[str, Any]:
+    return {"status": status, "details": details, "setup_steps": setup_steps or []}
 
 
-def _ready_if_present(value: str | None, missing_message: str) -> dict[str, Any]:
+def _ready_if_present(
+    value: str | None,
+    missing_message: str,
+    setup_step: str,
+) -> dict[str, Any]:
     if value:
         return _provider("ready", [])
-    return _provider("missing", [missing_message])
+    return _provider("missing", [missing_message], [setup_step])
 
 
 def provider_status(config: AppConfig) -> dict[str, Any]:
@@ -28,12 +36,30 @@ def provider_status(config: AppConfig) -> dict[str, Any]:
         gmail_details.append("Gmail token file is missing")
 
     providers = {
-        "openai": _ready_if_present(config.openai_api_key, "OPENAI_API_KEY is missing"),
-        "polygon": _ready_if_present(config.polygon_api_key, "POLYGON_API_KEY is missing"),
-        "gmail": _provider("ready" if not gmail_details else "action_required", gmail_details),
+        "openai": _ready_if_present(
+            config.openai_api_key,
+            "OPENAI_API_KEY is missing",
+            "Set OPENAI_API_KEY in the environment or .env file",
+        ),
+        "polygon": _ready_if_present(
+            config.polygon_api_key,
+            "POLYGON_API_KEY is missing",
+            "Set POLYGON_API_KEY in the environment or .env file",
+        ),
+        "gmail": _provider(
+            "ready" if not gmail_details else "action_required",
+            gmail_details,
+            [
+                f"Place Gmail OAuth client credentials at {config.gmail_credentials_path}",
+                f"Complete Gmail OAuth and save token at {config.gmail_token_path}",
+            ]
+            if gmail_details
+            else [],
+        ),
         "source_logins": _provider(
             "action_required",
             ["Confirm premium source logins are available before running article extraction"],
+            ["Confirm source website sessions before extraction"],
         ),
     }
     overall_status = "ready"

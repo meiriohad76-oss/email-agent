@@ -37,7 +37,9 @@ def test_dashboard_assets_are_served(tmp_path):
     assert "refreshProviderStatus" in js_response.text
     assert "updateRunStartAvailability" in js_response.text
     assert "essential provider" in js_response.text
+    assert "setup_steps" in js_response.text
     assert "provider-status-item" in css_response.text
+    assert "provider-setup-step" in css_response.text
     assert "button:disabled" in css_response.text
     assert "renderRunDetail" in js_response.text
     assert "renderArticleRows" in js_response.text

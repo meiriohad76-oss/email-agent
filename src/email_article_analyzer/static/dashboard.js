@@ -36,6 +36,12 @@ function renderProviderStatus(payload) {
       note.textContent = detail;
       item.append(note);
     });
+    (provider.setup_steps || []).forEach((setupStep) => {
+      const step = document.createElement("small");
+      step.className = "provider-setup-step";
+      step.textContent = setupStep;
+      item.append(step);
+    });
     list.append(item);
   });
 }
