@@ -94,6 +94,21 @@ CREATE TABLE IF NOT EXISTS article_links (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (gmail_message_id) REFERENCES gmail_messages(id)
 );
+
+CREATE TABLE IF NOT EXISTS article_analyses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    article_link_id INTEGER NOT NULL,
+    provider TEXT NOT NULL,
+    model TEXT,
+    summary TEXT NOT NULL,
+    stance TEXT NOT NULL,
+    confidence REAL NOT NULL,
+    supporting_evidence_json TEXT NOT NULL,
+    mentioned_tickers_json TEXT NOT NULL,
+    raw_response_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (article_link_id) REFERENCES article_links(id)
+);
 """
 
 

@@ -26,6 +26,14 @@ def fake_build(api_name, api_version, credentials):
     }
 
 
+class FakeOpenAIClient:
+    pass
+
+
+def fake_openai_client_factory(api_key):
+    return {"api_key": api_key, "client": FakeOpenAIClient()}
+
+
 def test_create_run_orchestrator_returns_none_when_gmail_token_is_missing(tmp_path):
     config = AppConfig(
         database_path=str(tmp_path / "app.db"),
@@ -48,7 +56,7 @@ def test_create_run_orchestrator_wires_real_gmail_provider(tmp_path):
         database_path=str(tmp_path / "app.db"),
         dashboard_password="secret",
         polygon_api_key=None,
-        openai_api_key="openai-key",
+        openai_api_key=None,
         gmail_credentials_path=str(tmp_path / "gmail_credentials.json"),
         gmail_token_path=str(token_path),
     )
@@ -68,3 +76,27 @@ def test_create_run_orchestrator_wires_real_gmail_provider(tmp_path):
     assert provider.service["api_version"] == "v1"
     assert FakeCredentials.calls[0][0] == str(token_path)
     assert "https://www.googleapis.com/auth/gmail.modify" in FakeCredentials.calls[0][1]
+
+
+def test_create_run_orchestrator_wires_openai_analyzer_when_api_key_exists(tmp_path):
+    token_path = tmp_path / "gmail_token.json"
+    token_path.write_text("{}", encoding="utf-8")
+    config = AppConfig(
+        database_path=str(tmp_path / "app.db"),
+        dashboard_password="secret",
+        polygon_api_key=None,
+        openai_api_key="openai-key",
+        gmail_credentials_path=str(tmp_path / "gmail_credentials.json"),
+        gmail_token_path=str(token_path),
+    )
+
+    orchestrator = create_run_orchestrator(
+        config,
+        config.database_path,
+        credentials_cls=FakeCredentials,
+        service_builder=fake_build,
+        openai_client_factory=fake_openai_client_factory,
+    )
+
+    assert orchestrator.article_analyzer is not None
+    assert orchestrator.article_analyzer.client["api_key"] == "openai-key"

@@ -1,4 +1,5 @@
 from email_article_analyzer.db import initialize_database
+from email_article_analyzer.article_analysis import ArticleAnalysisResult
 from email_article_analyzer.gmail import GmailCandidate, GmailMessage
 from email_article_analyzer.link_extraction import ExtractedLink
 from email_article_analyzer.repositories import GmailDiscoveryRepository, RunRepository
@@ -14,6 +15,31 @@ class FakeDiscoveryService:
     def discover_candidates(self):
         self.called = True
         return self.candidates
+
+
+class FakeArticleAnalyzer:
+    def __init__(self):
+        self.calls = []
+
+    def analyze_article(self, url, source_key, email_subject, model):
+        self.calls.append(
+            {
+                "url": url,
+                "source_key": source_key,
+                "email_subject": email_subject,
+                "model": model,
+            }
+        )
+        return ArticleAnalysisResult(
+            provider="openai",
+            model=model,
+            summary="Margins improved after a stronger guide.",
+            stance="buy_watch",
+            confidence=0.82,
+            supporting_evidence=["Raised FY guide", "Gross margin expanded"],
+            mentioned_tickers=["NVDA"],
+            raw_response={"id": "resp-1"},
+        )
 
 
 def test_run_orchestrator_persists_candidates_events_and_needed_logins(tmp_path):
@@ -66,3 +92,61 @@ def test_run_orchestrator_persists_candidates_events_and_needed_logins(tmp_path)
         "headline_link_detected",
         "run_completed",
     ]
+
+
+def test_run_orchestrator_analyzes_discovered_headline_link_when_analyzer_is_configured(tmp_path):
+    db_path = str(tmp_path / "app.db")
+    initialize_database(db_path)
+    source = next(source for source in TRUSTED_SOURCES if source.source_key == "seeking_alpha")
+    candidate = GmailCandidate(
+        message=GmailMessage(
+            message_id="msg-1",
+            thread_id="thread-1",
+            sender="alerts@seekingalpha.com",
+            subject="Story",
+            labels=["UNREAD"],
+            html_body="<h1>Story</h1>",
+            text_body="",
+        ),
+        source=source,
+        headline_link=ExtractedLink(
+            url="https://seekingalpha.com/article/1",
+            detection_method="headline_anchor",
+            detection_confidence=0.9,
+        ),
+    )
+    discovery_service = FakeDiscoveryService([candidate])
+    analyzer = FakeArticleAnalyzer()
+    run_repo = RunRepository(db_path)
+    gmail_repo = GmailDiscoveryRepository(db_path)
+    orchestrator = RunOrchestrator(
+        run_repository=run_repo,
+        gmail_repository=gmail_repo,
+        discovery_service=discovery_service,
+        article_analyzer=analyzer,
+    )
+
+    result = orchestrator.start_discovery_run(
+        extraction_model="gpt-extract",
+        summary_model="gpt-summary",
+    )
+
+    assert analyzer.calls == [
+        {
+            "url": "https://seekingalpha.com/article/1",
+            "source_key": "seeking_alpha",
+            "email_subject": "Story",
+            "model": "gpt-summary",
+        }
+    ]
+    events = run_repo.list_events(result.run_id)
+    assert [event["event_type"] for event in events] == [
+        "run_started",
+        "gmail_search_started",
+        "headline_link_detected",
+        "article_analyzed",
+        "run_completed",
+    ]
+    analysis = gmail_repo.get_article_analysis(1)
+    assert analysis["summary"] == "Margins improved after a stronger guide."
+    assert analysis["stance"] == "buy_watch"

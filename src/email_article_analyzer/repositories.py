@@ -281,3 +281,45 @@ class GmailDiscoveryRepository:
         if row is None:
             raise KeyError(f"Article link not found: {row_id}")
         return dict(row)
+
+    def save_article_analysis(
+        self,
+        article_link_id: int,
+        provider: str,
+        model: str | None,
+        summary: str,
+        stance: str,
+        confidence: float,
+        supporting_evidence: list[str],
+        mentioned_tickers: list[str],
+        raw_response: dict[str, Any] | None = None,
+    ) -> int:
+        with connect(self.database_path) as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO article_analyses (
+                    article_link_id, provider, model, summary, stance, confidence,
+                    supporting_evidence_json, mentioned_tickers_json, raw_response_json
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    article_link_id,
+                    provider,
+                    model,
+                    summary,
+                    stance,
+                    confidence,
+                    json.dumps(supporting_evidence),
+                    json.dumps(mentioned_tickers),
+                    json.dumps(raw_response or {}, sort_keys=True),
+                ),
+            )
+            return int(cursor.lastrowid)
+
+    def get_article_analysis(self, row_id: int) -> dict[str, Any]:
+        with connect(self.database_path) as conn:
+            row = conn.execute("SELECT * FROM article_analyses WHERE id = ?", (row_id,)).fetchone()
+        if row is None:
+            raise KeyError(f"Article analysis not found: {row_id}")
+        return dict(row)

@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 
+from email_article_analyzer.article_analysis import ArticleAnalyzer
 from email_article_analyzer.gmail import GmailCandidate
 from email_article_analyzer.repositories import GmailDiscoveryRepository, RunRepository
 
@@ -18,10 +19,12 @@ class RunOrchestrator:
         run_repository: RunRepository,
         gmail_repository: GmailDiscoveryRepository,
         discovery_service,
+        article_analyzer: ArticleAnalyzer | None = None,
     ):
         self.run_repository = run_repository
         self.gmail_repository = gmail_repository
         self.discovery_service = discovery_service
+        self.article_analyzer = article_analyzer
 
     def start_discovery_run(
         self,
@@ -51,7 +54,7 @@ class RunOrchestrator:
 
         candidates = self.discovery_service.discover_candidates()
         for candidate in candidates:
-            self._persist_candidate(run_id, candidate)
+            self._persist_candidate(run_id, candidate, summary_model)
 
         self.run_repository.complete_run(run_id)
         self.run_repository.add_event(
@@ -70,7 +73,12 @@ class RunOrchestrator:
             ),
         )
 
-    def _persist_candidate(self, run_id: int, candidate: GmailCandidate) -> None:
+    def _persist_candidate(
+        self,
+        run_id: int,
+        candidate: GmailCandidate,
+        summary_model: str | None,
+    ) -> None:
         message = candidate.message
         message_row_id = self.gmail_repository.save_message(
             run_id=run_id,
@@ -82,7 +90,7 @@ class RunOrchestrator:
             source_key=candidate.source.source_key,
             processing_status="discovered",
         )
-        self.gmail_repository.save_article_link(
+        article_link_id = self.gmail_repository.save_article_link(
             gmail_message_row_id=message_row_id,
             source_key=candidate.source.source_key,
             raw_url=candidate.headline_link.url,
@@ -102,5 +110,40 @@ class RunOrchestrator:
                 "source_key": candidate.source.source_key,
                 "url": candidate.headline_link.url,
                 "detection_method": candidate.headline_link.detection_method,
+            },
+        )
+        if self.article_analyzer is None:
+            return
+
+        analysis = self.article_analyzer.analyze_article(
+            url=candidate.headline_link.url,
+            source_key=candidate.source.source_key,
+            email_subject=message.subject,
+            model=summary_model,
+        )
+        analysis_id = self.gmail_repository.save_article_analysis(
+            article_link_id=article_link_id,
+            provider=analysis.provider,
+            model=analysis.model,
+            summary=analysis.summary,
+            stance=analysis.stance,
+            confidence=analysis.confidence,
+            supporting_evidence=analysis.supporting_evidence,
+            mentioned_tickers=analysis.mentioned_tickers,
+            raw_response=analysis.raw_response,
+        )
+        self.run_repository.add_event(
+            run_id=run_id,
+            event_type="article_analyzed",
+            stage="article_analysis",
+            message="Article analyzed",
+            entity_type="article_link",
+            entity_id=str(article_link_id),
+            details={
+                "analysis_id": analysis_id,
+                "provider": analysis.provider,
+                "model": analysis.model,
+                "stance": analysis.stance,
+                "confidence": analysis.confidence,
             },
         )

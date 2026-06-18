@@ -1,0 +1,122 @@
+import json
+from dataclasses import dataclass
+from typing import Any, Protocol
+
+
+@dataclass(frozen=True)
+class ArticleAnalysisResult:
+    provider: str
+    model: str | None
+    summary: str
+    stance: str
+    confidence: float
+    supporting_evidence: list[str]
+    mentioned_tickers: list[str]
+    raw_response: dict[str, Any]
+
+
+class ArticleAnalyzer(Protocol):
+    def analyze_article(
+        self,
+        url: str,
+        source_key: str,
+        email_subject: str,
+        model: str | None,
+    ) -> ArticleAnalysisResult:
+        pass
+
+
+ARTICLE_ANALYSIS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "summary": {
+            "type": "string",
+            "description": "Brief stock-market relevant summary of the article.",
+        },
+        "stance": {
+            "type": "string",
+            "enum": ["buy_watch", "hold", "sell_watch", "avoid", "unclear"],
+        },
+        "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+        },
+        "supporting_evidence": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+        "mentioned_tickers": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+    },
+    "required": [
+        "summary",
+        "stance",
+        "confidence",
+        "supporting_evidence",
+        "mentioned_tickers",
+    ],
+    "additionalProperties": False,
+}
+
+
+class OpenAIArticleAnalyzer:
+    def __init__(self, client):
+        self.client = client
+
+    def analyze_article(
+        self,
+        url: str,
+        source_key: str,
+        email_subject: str,
+        model: str | None,
+    ) -> ArticleAnalysisResult:
+        response = self.client.responses.create(
+            model=model,
+            input=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Analyze the linked stock-market article for an investor. "
+                        "Return only evidence grounded in the article. If confidence "
+                        "is above 0.70, include at least 2 supporting evidence items."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Source: {source_key}\n"
+                        f"Email headline: {email_subject}\n"
+                        f"Article URL: {url}\n"
+                    ),
+                },
+            ],
+            text={
+                "format": {
+                    "type": "json_schema",
+                    "name": "stock_article_analysis",
+                    "strict": True,
+                    "schema": ARTICLE_ANALYSIS_SCHEMA,
+                }
+            },
+        )
+        raw_output = getattr(response, "output_text", "")
+        payload = json.loads(raw_output)
+        confidence = float(payload["confidence"])
+        supporting_evidence = list(payload["supporting_evidence"])
+        if confidence > 0.70 and len(supporting_evidence) < 2:
+            raise ValueError(
+                "Article analysis with confidence above 70% requires at least 2 supporting evidence items"
+            )
+        return ArticleAnalysisResult(
+            provider="openai",
+            model=model,
+            summary=str(payload["summary"]),
+            stance=str(payload["stance"]),
+            confidence=confidence,
+            supporting_evidence=supporting_evidence,
+            mentioned_tickers=list(payload["mentioned_tickers"]),
+            raw_response={"output_text": raw_output},
+        )

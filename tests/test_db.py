@@ -24,4 +24,5 @@ def test_initialize_database_creates_foundation_tables(tmp_path):
         "trusted_sources",
         "gmail_messages",
         "article_links",
+        "article_analyses",
     }.issubset(table_names(db_path))
