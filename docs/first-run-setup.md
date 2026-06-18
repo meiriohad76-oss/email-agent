@@ -29,7 +29,13 @@ config/gmail_credentials.json
 
 ## 3. Create the Gmail Token File
 
-Complete the Gmail OAuth flow with the local Gmail provider workflow, then save the resulting token file at `GMAIL_TOKEN_PATH`.
+Run the local Gmail OAuth helper:
+
+```powershell
+$env:PYTHONPATH='src'; python -m email_article_analyzer.cli gmail-auth
+```
+
+The command opens a local browser-based OAuth flow, requests Gmail modify access, and writes the resulting token file at `GMAIL_TOKEN_PATH`.
 
 Default path:
 
