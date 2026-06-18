@@ -121,31 +121,57 @@ class RunOrchestrator:
         article_title = None
         article_text = None
         if self.article_content_fetcher is not None:
-            content = self.article_content_fetcher.fetch(candidate.headline_link.url)
-            content_id = self.gmail_repository.save_article_content(
-                article_link_id=article_link_id,
-                fetch_status="fetched",
-                final_url=content.final_url,
-                http_status=content.http_status,
-                title=content.title,
-                extracted_text=content.extracted_text,
-                failure_reason=None,
-            )
-            article_title = content.title
-            article_text = content.extracted_text
-            self.run_repository.add_event(
-                run_id=run_id,
-                event_type="article_content_extracted",
-                stage="article_content",
-                message="Article content extracted",
-                entity_type="article_link",
-                entity_id=str(article_link_id),
-                details={
-                    "content_id": content_id,
-                    "text_char_count": len(content.extracted_text),
-                    "http_status": content.http_status,
-                },
-            )
+            try:
+                content = self.article_content_fetcher.fetch(candidate.headline_link.url)
+            except Exception as exc:
+                failure_reason = str(exc)
+                content_id = self.gmail_repository.save_article_content(
+                    article_link_id=article_link_id,
+                    fetch_status="failed",
+                    final_url=None,
+                    http_status=None,
+                    title=None,
+                    extracted_text=None,
+                    failure_reason=failure_reason,
+                )
+                self.run_repository.add_event(
+                    run_id=run_id,
+                    event_type="article_content_fetch_failed",
+                    stage="article_content",
+                    message="Article content fetch failed; falling back to headline-only analysis",
+                    entity_type="article_link",
+                    entity_id=str(article_link_id),
+                    severity="warning",
+                    details={
+                        "content_id": content_id,
+                        "failure_reason": failure_reason,
+                    },
+                )
+            else:
+                content_id = self.gmail_repository.save_article_content(
+                    article_link_id=article_link_id,
+                    fetch_status="fetched",
+                    final_url=content.final_url,
+                    http_status=content.http_status,
+                    title=content.title,
+                    extracted_text=content.extracted_text,
+                    failure_reason=None,
+                )
+                article_title = content.title
+                article_text = content.extracted_text
+                self.run_repository.add_event(
+                    run_id=run_id,
+                    event_type="article_content_extracted",
+                    stage="article_content",
+                    message="Article content extracted",
+                    entity_type="article_link",
+                    entity_id=str(article_link_id),
+                    details={
+                        "content_id": content_id,
+                        "text_char_count": len(content.extracted_text),
+                        "http_status": content.http_status,
+                    },
+                )
 
         analysis = self.article_analyzer.analyze_article(
             url=candidate.headline_link.url,
