@@ -92,7 +92,7 @@ def test_get_run_endpoint_returns_status_counts_and_events(tmp_path):
         source_key="seeking_alpha",
         processing_status="discovered",
     )
-    gmail_repo.save_article_link(
+    link_id = gmail_repo.save_article_link(
         gmail_message_row_id=message_row_id,
         source_key="seeking_alpha",
         raw_url="https://seekingalpha.com/article/1",
@@ -100,6 +100,26 @@ def test_get_run_endpoint_returns_status_counts_and_events(tmp_path):
         detection_method="headline_anchor",
         detection_confidence=0.9,
         heuristic_notes=None,
+    )
+    gmail_repo.save_article_content(
+        article_link_id=link_id,
+        fetch_status="fetched",
+        final_url="https://seekingalpha.com/article/1",
+        http_status=200,
+        title="Story title",
+        extracted_text="Article body text.",
+        failure_reason=None,
+    )
+    gmail_repo.save_article_analysis(
+        article_link_id=link_id,
+        provider="openai",
+        model="gpt-summary",
+        summary="Margins improved.",
+        stance="buy_watch",
+        confidence=0.82,
+        supporting_evidence=["Raised guide", "Margin expansion"],
+        mentioned_tickers=["NVDA"],
+        raw_response={"id": "resp-1"},
     )
     app = create_app(database_path=db_path)
     client = TestClient(app)
@@ -123,6 +143,21 @@ def test_get_run_endpoint_returns_status_counts_and_events(tmp_path):
             "normalized_url": "https://seekingalpha.com/article/1",
             "detection_method": "headline_anchor",
             "detection_confidence": 0.9,
+            "content": {
+                "fetch_status": "fetched",
+                "title": "Story title",
+                "text_char_count": len("Article body text."),
+                "failure_reason": None,
+            },
+            "analysis": {
+                "provider": "openai",
+                "model": "gpt-summary",
+                "summary": "Margins improved.",
+                "stance": "buy_watch",
+                "confidence": 0.82,
+                "supporting_evidence": ["Raised guide", "Margin expansion"],
+                "mentioned_tickers": ["NVDA"],
+            },
         }
     ]
 

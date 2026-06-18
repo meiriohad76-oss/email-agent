@@ -125,15 +125,73 @@ class RunRepository:
                     article_links.source_key,
                     article_links.normalized_url,
                     article_links.detection_method,
-                    article_links.detection_confidence
+                    article_links.detection_confidence,
+                    article_contents.fetch_status,
+                    article_contents.title AS content_title,
+                    article_contents.text_char_count,
+                    article_contents.failure_reason AS content_failure_reason,
+                    article_analyses.provider AS analysis_provider,
+                    article_analyses.model AS analysis_model,
+                    article_analyses.summary AS analysis_summary,
+                    article_analyses.stance AS analysis_stance,
+                    article_analyses.confidence AS analysis_confidence,
+                    article_analyses.supporting_evidence_json,
+                    article_analyses.mentioned_tickers_json
                 FROM article_links
                 JOIN gmail_messages ON gmail_messages.id = article_links.gmail_message_id
+                LEFT JOIN article_contents ON article_contents.id = (
+                    SELECT id
+                    FROM article_contents
+                    WHERE article_contents.article_link_id = article_links.id
+                    ORDER BY id DESC
+                    LIMIT 1
+                )
+                LEFT JOIN article_analyses ON article_analyses.id = (
+                    SELECT id
+                    FROM article_analyses
+                    WHERE article_analyses.article_link_id = article_links.id
+                    ORDER BY id DESC
+                    LIMIT 1
+                )
                 WHERE gmail_messages.run_id = ?
                 ORDER BY article_links.id
                 """,
                 (run_id,),
             ).fetchall()
-        return [dict(row) for row in rows]
+        return [self._article_detail_from_row(dict(row)) for row in rows]
+
+    def _article_detail_from_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        article = {
+            "article_link_id": row["article_link_id"],
+            "gmail_message_id": row["gmail_message_id"],
+            "sender": row["sender"],
+            "subject": row["subject"],
+            "message_status": row["message_status"],
+            "source_key": row["source_key"],
+            "normalized_url": row["normalized_url"],
+            "detection_method": row["detection_method"],
+            "detection_confidence": row["detection_confidence"],
+            "content": None,
+            "analysis": None,
+        }
+        if row["fetch_status"] is not None:
+            article["content"] = {
+                "fetch_status": row["fetch_status"],
+                "title": row["content_title"],
+                "text_char_count": row["text_char_count"],
+                "failure_reason": row["content_failure_reason"],
+            }
+        if row["analysis_provider"] is not None:
+            article["analysis"] = {
+                "provider": row["analysis_provider"],
+                "model": row["analysis_model"],
+                "summary": row["analysis_summary"],
+                "stance": row["analysis_stance"],
+                "confidence": row["analysis_confidence"],
+                "supporting_evidence": json.loads(row["supporting_evidence_json"]),
+                "mentioned_tickers": json.loads(row["mentioned_tickers_json"]),
+            }
+        return article
 
 
 class WatchlistRepository:
