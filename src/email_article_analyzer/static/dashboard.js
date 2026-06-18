@@ -40,16 +40,37 @@ function renderProviderStatus(payload) {
   });
 }
 
+function updateRunStartAvailability(payload) {
+  const providers = payload.providers || {};
+  const essentialProviderKeys = ["openai", "gmail"];
+  const missingEssentialProviders = essentialProviderKeys.filter(
+    (key) => providers[key]?.status !== "ready",
+  );
+  const startButton = document.getElementById("start-run-button");
+  const message = document.getElementById("run-readiness-message");
+  if (!missingEssentialProviders.length) {
+    startButton.disabled = false;
+    message.textContent = "Essential providers are ready.";
+    message.classList.remove("error-text");
+    return;
+  }
+  startButton.disabled = true;
+  message.textContent = `Start disabled until essential provider setup is ready: ${missingEssentialProviders.join(", ")}`;
+  message.classList.add("error-text");
+}
+
 async function refreshProviderStatus() {
   const list = document.getElementById("provider-status-list");
   try {
     const payload = await fetchJson("/api/status/providers");
     renderProviderStatus(payload);
+    updateRunStartAvailability(payload);
   } catch (error) {
     const item = document.createElement("div");
     item.className = "provider-status-item missing";
     item.textContent = error.message;
     list.replaceChildren(item);
+    updateRunStartAvailability({ providers: {} });
   }
 }
 
@@ -259,6 +280,10 @@ document.getElementById("watchlist-upload").addEventListener("submit", async (ev
 
 document.getElementById("run-start-form").addEventListener("submit", async (event) => {
   event.preventDefault();
+  if (document.getElementById("start-run-button").disabled) {
+    writeResult("run-start-result", "Start disabled until essential provider setup is ready.");
+    return;
+  }
   const form = new FormData(event.currentTarget);
   const body = {
     extraction_model: form.get("extraction_model") || null,
