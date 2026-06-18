@@ -44,5 +44,9 @@ def test_dashboard_assets_are_served(tmp_path):
     assert "renderRunDetail" in js_response.text
     assert "renderArticleRows" in js_response.text
     assert "source-login-warning-list" in js_response.text
+    assert "article-analysis" in js_response.text
+    assert "supporting_evidence" in js_response.text
+    assert "fetch_status" in js_response.text
     assert "article-row" in css_response.text
+    assert ".article-analysis" in css_response.text
     assert "event-timeline-row" in css_response.text

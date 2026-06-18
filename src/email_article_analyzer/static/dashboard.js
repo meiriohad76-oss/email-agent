@@ -177,7 +177,57 @@ function renderArticleRows(articles) {
     link.rel = "noreferrer";
     link.textContent = article.normalized_url;
 
-    row.append(title, meta, link);
+    const contentStatus = document.createElement("div");
+    contentStatus.className = `article-fetch-status ${article.content?.fetch_status || "missing"}`;
+    if (article.content) {
+      const contentParts = [`Content: ${article.content.fetch_status}`];
+      if (article.content.title) {
+        contentParts.push(article.content.title);
+      }
+      if (article.content.text_char_count) {
+        contentParts.push(`${article.content.text_char_count} chars`);
+      }
+      if (article.content.failure_reason) {
+        contentParts.push(article.content.failure_reason);
+      }
+      contentStatus.textContent = contentParts.join(" - ");
+    } else {
+      contentStatus.textContent = "Content: not fetched";
+    }
+
+    const analysis = document.createElement("div");
+    analysis.className = "article-analysis";
+    if (article.analysis) {
+      const analysisHeader = document.createElement("div");
+      analysisHeader.className = "article-analysis-header";
+      const confidence = Math.round((article.analysis.confidence ?? 0) * 100);
+      analysisHeader.textContent = [
+        article.analysis.stance,
+        `${confidence}% confidence`,
+        article.analysis.model,
+      ].filter(Boolean).join(" - ");
+
+      const summary = document.createElement("p");
+      summary.textContent = article.analysis.summary;
+
+      const tickers = document.createElement("div");
+      tickers.className = "article-tickers";
+      tickers.textContent = `Tickers: ${(article.analysis.mentioned_tickers || []).join(", ") || "-"}`;
+
+      const evidence = document.createElement("ul");
+      evidence.className = "article-evidence";
+      (article.analysis.supporting_evidence || []).forEach((item) => {
+        const evidenceItem = document.createElement("li");
+        evidenceItem.textContent = item;
+        evidence.append(evidenceItem);
+      });
+
+      analysis.append(analysisHeader, summary, tickers, evidence);
+    } else {
+      analysis.textContent = "Analysis: pending";
+    }
+
+    row.append(title, meta, link, contentStatus, analysis);
     list.append(row);
   });
 }

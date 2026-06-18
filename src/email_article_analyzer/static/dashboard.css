@@ -306,6 +306,52 @@ h2 {
   overflow-wrap: anywhere;
 }
 
+.article-fetch-status {
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  padding-top: 8px;
+}
+
+.article-fetch-status.failed {
+  color: var(--danger);
+}
+
+.article-analysis {
+  background: #f9fbfb;
+  border: 1px solid var(--line);
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+}
+
+.article-analysis-header {
+  color: var(--accent-strong);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.article-analysis p {
+  margin: 0;
+}
+
+.article-tickers {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.article-evidence {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.article-evidence li {
+  margin: 3px 0;
+}
+
 .event-timeline-row {
   border-left: 3px solid var(--accent);
   background: #f9fbfb;
