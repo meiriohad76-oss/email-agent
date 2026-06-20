@@ -20,7 +20,7 @@ def create_run_orchestrator(
     config: AppConfig,
     database_path: str,
     credentials_cls=Credentials,
-    service_builder: Callable = build,
+    service_builder: Callable | None = None,
     openai_client_factory: Callable | None = None,
 ) -> RunOrchestrator | None:
     if not Path(config.gmail_token_path).exists():
@@ -29,7 +29,10 @@ def create_run_orchestrator(
         config.gmail_token_path,
         GMAIL_SCOPES,
     )
-    service = service_builder("gmail", "v1", credentials=credentials)
+    if service_builder is None:
+        service = _build_gmail_service(credentials)
+    else:
+        service = service_builder("gmail", "v1", credentials=credentials)
     provider = GmailApiProvider(service=service)
     discovery_service = GmailDiscoveryService(
         provider=provider,
@@ -56,3 +59,22 @@ def _create_openai_client(api_key: str):
     from openai import OpenAI
 
     return OpenAI(api_key=api_key)
+
+
+def _build_gmail_service(
+    credentials,
+    api_builder: Callable = build,
+    http_cls=None,
+    authorized_http_cls=None,
+    ca_bundle_path: str | None = None,
+):
+    import certifi
+    import httplib2
+    from google_auth_httplib2 import AuthorizedHttp
+
+    http_factory = http_cls or httplib2.Http
+    authorized_http_factory = authorized_http_cls or AuthorizedHttp
+    ca_certs = ca_bundle_path or certifi.where()
+    http = http_factory(ca_certs=ca_certs)
+    authorized_http = authorized_http_factory(credentials, http=http)
+    return api_builder("gmail", "v1", http=authorized_http)

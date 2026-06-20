@@ -34,10 +34,19 @@ def create_run(payload: CreateRunRequest, request: Request) -> dict[str, Any]:
             status_code=503,
             detail="Run orchestrator is not configured",
         )
-    result = orchestrator.start_discovery_run(
-        extraction_model=payload.extraction_model,
-        summary_model=payload.summary_model,
-    )
+    try:
+        result = orchestrator.start_discovery_run(
+            extraction_model=payload.extraction_model,
+            summary_model=payload.summary_model,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "message": "Discovery run failed",
+                "error": str(exc),
+            },
+        ) from exc
     return {
         "run_id": result.run_id,
         "status": result.status,

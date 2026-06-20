@@ -20,6 +20,11 @@ class FakeRunOrchestrator:
         )
 
 
+class FailingRunOrchestrator:
+    def start_discovery_run(self, extraction_model, summary_model):
+        raise RuntimeError("Gmail API TLS verification failed")
+
+
 def configure_ready_essentials(tmp_path, monkeypatch):
     credentials_path = tmp_path / "gmail_credentials.json"
     token_path = tmp_path / "gmail_token.json"
@@ -74,6 +79,26 @@ def test_create_run_endpoint_rejects_when_essential_providers_are_not_ready(tmp_
     assert response.status_code == 409
     assert response.json()["detail"]["missing_essential_providers"] == ["openai", "gmail"]
     assert fake_orchestrator.calls == []
+
+
+def test_create_run_endpoint_returns_bad_gateway_when_orchestrator_fails(tmp_path, monkeypatch):
+    configure_ready_essentials(tmp_path, monkeypatch)
+    app = create_app(
+        database_path=str(tmp_path / "app.db"),
+        run_orchestrator=FailingRunOrchestrator(),
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/runs",
+        json={"extraction_model": "gpt-extract", "summary_model": "gpt-summary"},
+    )
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == {
+        "message": "Discovery run failed",
+        "error": "Gmail API TLS verification failed",
+    }
 
 
 def test_get_run_endpoint_returns_status_counts_and_events(tmp_path):

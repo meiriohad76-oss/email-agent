@@ -1,5 +1,8 @@
 from email_article_analyzer.config import AppConfig
-from email_article_analyzer.orchestrator_factory import create_run_orchestrator
+from email_article_analyzer.orchestrator_factory import (
+    _build_gmail_service,
+    create_run_orchestrator,
+)
 from email_article_analyzer.providers.gmail_api import GmailApiProvider
 from email_article_analyzer.run_orchestration import RunOrchestrator
 
@@ -101,3 +104,38 @@ def test_create_run_orchestrator_wires_openai_analyzer_when_api_key_exists(tmp_p
     assert orchestrator.article_analyzer is not None
     assert orchestrator.article_content_fetcher is not None
     assert orchestrator.article_analyzer.client["api_key"] == "openai-key"
+
+
+def test_build_gmail_service_uses_certifi_ca_bundle():
+    calls = {}
+
+    class FakeHttp:
+        def __init__(self, ca_certs):
+            calls["ca_certs"] = ca_certs
+
+    class FakeAuthorizedHttp:
+        def __init__(self, credentials, http):
+            calls["credentials"] = credentials
+            calls["http"] = http
+
+    def fake_build(api_name, api_version, http):
+        calls["api_name"] = api_name
+        calls["api_version"] = api_version
+        calls["authorized_http"] = http
+        return {"service": "gmail"}
+
+    service = _build_gmail_service(
+        credentials="creds",
+        api_builder=fake_build,
+        http_cls=FakeHttp,
+        authorized_http_cls=FakeAuthorizedHttp,
+        ca_bundle_path="certifi.pem",
+    )
+
+    assert service == {"service": "gmail"}
+    assert calls["ca_certs"] == "certifi.pem"
+    assert calls["credentials"] == "creds"
+    assert isinstance(calls["http"], FakeHttp)
+    assert calls["api_name"] == "gmail"
+    assert calls["api_version"] == "v1"
+    assert isinstance(calls["authorized_http"], FakeAuthorizedHttp)
