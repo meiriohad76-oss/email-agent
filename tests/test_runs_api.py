@@ -55,6 +55,7 @@ def test_create_run_endpoint_starts_discovery_run(tmp_path, monkeypatch):
 
 
 def test_create_run_endpoint_rejects_when_essential_providers_are_not_ready(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.setenv("GMAIL_CREDENTIALS_PATH", str(tmp_path / "missing_credentials.json"))
     monkeypatch.setenv("GMAIL_TOKEN_PATH", str(tmp_path / "missing_token.json"))

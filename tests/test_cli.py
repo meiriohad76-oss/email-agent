@@ -20,6 +20,7 @@ def fake_flow_factory(credentials_path, scopes):
 
 
 def test_setup_status_cli_prints_first_run_checklist(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
     credentials_path = tmp_path / "gmail_credentials.json"
     token_path = tmp_path / "gmail_token.json"
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)

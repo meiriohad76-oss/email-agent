@@ -4,6 +4,7 @@ from email_article_analyzer.main import create_app
 
 
 def test_provider_status_reports_ready_and_missing_prerequisites(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     credentials_path = tmp_path / "gmail_credentials.json"
     credentials_path.write_text("{}", encoding="utf-8")
     missing_token_path = tmp_path / "gmail_token.json"

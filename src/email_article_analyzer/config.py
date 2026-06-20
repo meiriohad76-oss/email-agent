@@ -1,5 +1,8 @@
 from dataclasses import dataclass
 import os
+from pathlib import Path
+
+from dotenv import load_dotenv
 
 
 @dataclass(frozen=True)
@@ -13,6 +16,7 @@ class AppConfig:
 
     @classmethod
     def from_env(cls) -> "AppConfig":
+        load_dotenv(dotenv_path=Path.cwd() / ".env")
         polygon_key = os.getenv("POLYGON_API_KEY") or None
         openai_key = os.getenv("OPENAI_API_KEY") or None
         return cls(
