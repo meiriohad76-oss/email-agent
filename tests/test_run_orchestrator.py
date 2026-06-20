@@ -207,8 +207,12 @@ def test_run_orchestrator_records_failed_content_fetch_and_falls_back_to_headlin
             sender="alerts@seekingalpha.com",
             subject="Story",
             labels=["UNREAD"],
-            html_body="<h1>Story</h1>",
-            text_body="",
+            html_body=(
+                "<html><body><nav>unsubscribe</nav><h1>Story</h1>"
+                "<p>Nvidia raised guidance in the newsletter excerpt.</p>"
+                "<p>Gross margin expanded to 75%.</p></body></html>"
+            ),
+            text_body="Plain text fallback should not be used when HTML is available.",
         ),
         source=source,
         headline_link=ExtractedLink(
@@ -240,13 +244,23 @@ def test_run_orchestrator_records_failed_content_fetch_and_falls_back_to_headlin
             "url": "https://seekingalpha.com/article/1",
             "source_key": "seeking_alpha",
             "email_subject": "Story",
-            "article_title": None,
-            "article_text": None,
+            "article_title": "Story",
+            "article_text": (
+                "Story\n"
+                "Nvidia raised guidance in the newsletter excerpt.\n"
+                "Gross margin expanded to 75%."
+            ),
             "model": "gpt-summary",
         }
     ]
     content = gmail_repo.get_article_content(1)
-    assert content["fetch_status"] == "failed"
+    assert content["fetch_status"] == "email_fallback"
+    assert content["title"] == "Story"
+    assert content["text_char_count"] == len(
+        "Story\n"
+        "Nvidia raised guidance in the newsletter excerpt.\n"
+        "Gross margin expanded to 75%."
+    )
     assert content["failure_reason"] == "HTTP 403 Forbidden"
     events = run_repo.list_events(result.run_id)
     assert [event["event_type"] for event in events] == [
@@ -259,4 +273,4 @@ def test_run_orchestrator_records_failed_content_fetch_and_falls_back_to_headlin
     ]
     warning = events[3]
     assert warning["severity"] == "warning"
-    assert warning["message"] == "Article content fetch failed; falling back to headline-only analysis"
+    assert warning["message"] == "Article content fetch failed; falling back to email-body analysis"

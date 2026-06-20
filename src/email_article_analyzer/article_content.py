@@ -57,6 +57,12 @@ class _ReadableTextParser(HTMLParser):
         return "\n".join(part for part in self.body_parts if part).strip()
 
 
+def extract_readable_text_from_html(html: str) -> str:
+    parser = _ReadableTextParser()
+    parser.feed(html)
+    return parser.body
+
+
 class ArticleContentFetcher:
     def __init__(self, http_client=None, timeout_seconds: float = 20.0):
         self.http_client = http_client or httpx.Client()

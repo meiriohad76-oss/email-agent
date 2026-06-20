@@ -1,7 +1,10 @@
 from dataclasses import dataclass
 
 from email_article_analyzer.article_analysis import ArticleAnalyzer
-from email_article_analyzer.article_content import ArticleContentFetcherProtocol
+from email_article_analyzer.article_content import (
+    ArticleContentFetcherProtocol,
+    extract_readable_text_from_html,
+)
 from email_article_analyzer.gmail import GmailCandidate
 from email_article_analyzer.repositories import GmailDiscoveryRepository, RunRepository
 
@@ -125,26 +128,33 @@ class RunOrchestrator:
                 content = self.article_content_fetcher.fetch(candidate.headline_link.url)
             except Exception as exc:
                 failure_reason = str(exc)
+                article_title = message.subject
+                article_text = _email_body_fallback_text(message)
                 content_id = self.gmail_repository.save_article_content(
                     article_link_id=article_link_id,
-                    fetch_status="failed",
-                    final_url=None,
+                    fetch_status="email_fallback" if article_text else "failed",
+                    final_url=candidate.headline_link.url if article_text else None,
                     http_status=None,
-                    title=None,
-                    extracted_text=None,
+                    title=article_title if article_text else None,
+                    extracted_text=article_text,
                     failure_reason=failure_reason,
                 )
                 self.run_repository.add_event(
                     run_id=run_id,
                     event_type="article_content_fetch_failed",
                     stage="article_content",
-                    message="Article content fetch failed; falling back to headline-only analysis",
+                    message=(
+                        "Article content fetch failed; falling back to email-body analysis"
+                        if article_text
+                        else "Article content fetch failed; falling back to headline-only analysis"
+                    ),
                     entity_type="article_link",
                     entity_id=str(article_link_id),
                     severity="warning",
                     details={
                         "content_id": content_id,
                         "failure_reason": failure_reason,
+                        "fallback_text_char_count": len(article_text or ""),
                     },
                 )
             else:
@@ -207,3 +217,13 @@ class RunOrchestrator:
                 "confidence": analysis.confidence,
             },
         )
+
+
+def _email_body_fallback_text(message) -> str | None:
+    if message.html_body:
+        text = extract_readable_text_from_html(message.html_body)
+    else:
+        text = message.text_body.strip()
+    if not text:
+        return None
+    return text[:12000]

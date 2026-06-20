@@ -108,6 +108,13 @@ function metricCard(label, value) {
   return card;
 }
 
+function formatContentStatus(status) {
+  if (status === "email_fallback") {
+    return "email fallback";
+  }
+  return status || "not fetched";
+}
+
 function renderSourceLoginWarnings(events) {
   const list = document.getElementById("source-login-warning-list");
   list.replaceChildren();
@@ -190,7 +197,7 @@ function renderArticleRows(articles) {
     const contentStatus = document.createElement("div");
     contentStatus.className = `article-fetch-status ${article.content?.fetch_status || "missing"}`;
     if (article.content) {
-      const contentParts = [`Content: ${article.content.fetch_status}`];
+      const contentParts = [`Content: ${formatContentStatus(article.content.fetch_status)}`];
       if (article.content.title) {
         contentParts.push(article.content.title);
       }

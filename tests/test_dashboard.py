@@ -43,6 +43,8 @@ def test_dashboard_assets_are_served(tmp_path):
     assert "button:disabled" in css_response.text
     assert "renderRunDetail" in js_response.text
     assert "formatApiError" in js_response.text
+    assert "formatContentStatus" in js_response.text
+    assert "email fallback" in js_response.text
     assert "payload.detail" in js_response.text
     assert "renderArticleRows" in js_response.text
     assert "source-login-warning-list" in js_response.text
@@ -50,5 +52,6 @@ def test_dashboard_assets_are_served(tmp_path):
     assert "supporting_evidence" in js_response.text
     assert "fetch_status" in js_response.text
     assert "article-row" in css_response.text
+    assert "article-fetch-status.email_fallback" in css_response.text
     assert ".article-analysis" in css_response.text
     assert "event-timeline-row" in css_response.text
