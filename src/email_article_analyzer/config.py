@@ -13,6 +13,7 @@ class AppConfig:
     openai_api_key: str | None
     gmail_credentials_path: str
     gmail_token_path: str
+    tls_verify: bool = True
 
     @classmethod
     def from_env(cls) -> "AppConfig":
@@ -29,4 +30,12 @@ class AppConfig:
                 "config/gmail_credentials.json",
             ),
             gmail_token_path=os.getenv("GMAIL_TOKEN_PATH", "data/gmail_token.json"),
+            tls_verify=_read_bool_env("TLS_VERIFY", default=True),
         )
+
+
+def _read_bool_env(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() not in {"0", "false", "no", "off"}

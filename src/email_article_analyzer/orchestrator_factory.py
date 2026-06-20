@@ -1,8 +1,12 @@
 from pathlib import Path
+import os
+import ssl
+import tempfile
 from typing import Callable
 
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
+import httpx
 
 from email_article_analyzer.auth import GMAIL_SCOPES
 from email_article_analyzer.article_analysis import OpenAIArticleAnalyzer
@@ -41,11 +45,19 @@ def create_run_orchestrator(
     article_analyzer = None
     article_content_fetcher = None
     if config.openai_api_key:
-        client_factory = openai_client_factory or _create_openai_client
+        if openai_client_factory is None:
+            client = _create_openai_client(
+                config.openai_api_key,
+                tls_verify=config.tls_verify,
+            )
+        else:
+            client = openai_client_factory(config.openai_api_key)
         article_analyzer = OpenAIArticleAnalyzer(
-            client=client_factory(config.openai_api_key),
+            client=client,
         )
-        article_content_fetcher = ArticleContentFetcher()
+        article_content_fetcher = _create_article_content_fetcher(
+            tls_verify=config.tls_verify,
+        )
     return RunOrchestrator(
         run_repository=RunRepository(database_path),
         gmail_repository=GmailDiscoveryRepository(database_path),
@@ -55,10 +67,32 @@ def create_run_orchestrator(
     )
 
 
-def _create_openai_client(api_key: str):
-    from openai import OpenAI
+def _create_openai_client(
+    api_key: str,
+    openai_cls=None,
+    http_client_cls=httpx.Client,
+    ca_bundle_path: str | None = None,
+    tls_verify: bool = True,
+):
+    if openai_cls is None:
+        from openai import OpenAI
 
-    return OpenAI(api_key=api_key)
+        openai_cls = OpenAI
+
+    verify = ca_bundle_path or _default_ca_bundle_path()
+    http_client = http_client_cls(verify=verify if tls_verify else False)
+    return openai_cls(api_key=api_key, http_client=http_client)
+
+
+def _create_article_content_fetcher(
+    http_client_cls=httpx.Client,
+    ca_bundle_path: str | None = None,
+    tls_verify: bool = True,
+) -> ArticleContentFetcher:
+    verify = ca_bundle_path or _default_ca_bundle_path()
+    return ArticleContentFetcher(
+        http_client=http_client_cls(verify=verify if tls_verify else False)
+    )
 
 
 def _build_gmail_service(
@@ -74,7 +108,37 @@ def _build_gmail_service(
 
     http_factory = http_cls or httplib2.Http
     authorized_http_factory = authorized_http_cls or AuthorizedHttp
-    ca_certs = ca_bundle_path or certifi.where()
+    ca_certs = ca_bundle_path or _default_ca_bundle_path()
     http = http_factory(ca_certs=ca_certs)
     authorized_http = authorized_http_factory(credentials, http=http)
     return api_builder("gmail", "v1", http=authorized_http)
+
+
+def _default_ca_bundle_path() -> str:
+    import certifi
+
+    return _build_ca_bundle(certifi_bundle_path=certifi.where())
+
+
+def _build_ca_bundle(
+    certifi_bundle_path: str,
+    output_path: Path | None = None,
+    windows_certificates=None,
+    der_to_pem: Callable[[bytes], str] = ssl.DER_cert_to_PEM_cert,
+) -> str:
+    if os.name != "nt" and windows_certificates is None:
+        return certifi_bundle_path
+
+    certificates = (
+        windows_certificates
+        if windows_certificates is not None
+        else ssl.enum_certificates("ROOT")
+    )
+    output = output_path or Path(tempfile.gettempdir()) / "email_article_analyzer_ca_bundle.pem"
+    output.write_bytes(Path(certifi_bundle_path).read_bytes())
+    with output.open("ab") as bundle:
+        for certificate, encoding, _trust in certificates:
+            if encoding != "x509_asn":
+                continue
+            bundle.write(der_to_pem(certificate).encode("ascii"))
+    return str(output)

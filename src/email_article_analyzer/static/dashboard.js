@@ -1,5 +1,15 @@
 const formatJson = (value) => JSON.stringify(value, null, 2);
 
+function formatApiError(payload) {
+  if (typeof payload.detail === "string") {
+    return payload.detail;
+  }
+  if (payload.detail) {
+    return formatJson(payload.detail);
+  }
+  return formatJson(payload);
+}
+
 async function fetchJson(url, options = {}) {
   const response = await fetch(url, options);
   const text = await response.text();
@@ -10,7 +20,7 @@ async function fetchJson(url, options = {}) {
     payload = { raw: text };
   }
   if (!response.ok) {
-    throw new Error(payload.detail || formatJson(payload));
+    throw new Error(formatApiError(payload));
   }
   return payload;
 }

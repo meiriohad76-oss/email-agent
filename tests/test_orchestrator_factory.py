@@ -1,6 +1,9 @@
 from email_article_analyzer.config import AppConfig
 from email_article_analyzer.orchestrator_factory import (
+    _build_ca_bundle,
     _build_gmail_service,
+    _create_article_content_fetcher,
+    _create_openai_client,
     create_run_orchestrator,
 )
 from email_article_analyzer.providers.gmail_api import GmailApiProvider
@@ -139,3 +142,102 @@ def test_build_gmail_service_uses_certifi_ca_bundle():
     assert calls["api_name"] == "gmail"
     assert calls["api_version"] == "v1"
     assert isinstance(calls["authorized_http"], FakeAuthorizedHttp)
+
+
+def test_build_ca_bundle_appends_windows_root_certificates(tmp_path):
+    certifi_bundle = tmp_path / "certifi.pem"
+    certifi_bundle.write_text("CERTIFI\n", encoding="utf-8")
+    output_bundle = tmp_path / "combined.pem"
+
+    bundle_path = _build_ca_bundle(
+        certifi_bundle_path=str(certifi_bundle),
+        output_path=output_bundle,
+        windows_certificates=[(b"certificate-bytes", "x509_asn", True)],
+        der_to_pem=lambda certificate: f"PEM:{certificate.decode('ascii')}\n",
+    )
+
+    assert bundle_path == str(output_bundle)
+    bundle_text = output_bundle.read_text(encoding="utf-8")
+    assert "CERTIFI" in bundle_text
+    assert "PEM:certificate-bytes" in bundle_text
+
+
+def test_create_openai_client_uses_verified_http_client():
+    calls = {}
+
+    class FakeHttpClient:
+        def __init__(self, verify):
+            calls["verify"] = verify
+
+    class FakeOpenAI:
+        def __init__(self, api_key, http_client):
+            calls["api_key"] = api_key
+            calls["http_client"] = http_client
+
+    client = _create_openai_client(
+        "openai-key",
+        openai_cls=FakeOpenAI,
+        http_client_cls=FakeHttpClient,
+        ca_bundle_path="combined.pem",
+        tls_verify=True,
+    )
+
+    assert isinstance(client, FakeOpenAI)
+    assert calls["api_key"] == "openai-key"
+    assert isinstance(calls["http_client"], FakeHttpClient)
+    assert calls["verify"] == "combined.pem"
+
+
+def test_create_openai_client_can_disable_tls_verification():
+    calls = {}
+
+    class FakeHttpClient:
+        def __init__(self, verify):
+            calls["verify"] = verify
+
+    class FakeOpenAI:
+        def __init__(self, api_key, http_client):
+            calls["http_client"] = http_client
+
+    _create_openai_client(
+        "openai-key",
+        openai_cls=FakeOpenAI,
+        http_client_cls=FakeHttpClient,
+        ca_bundle_path="combined.pem",
+        tls_verify=False,
+    )
+
+    assert calls["verify"] is False
+
+
+def test_create_article_content_fetcher_uses_verified_http_client():
+    calls = {}
+
+    class FakeHttpClient:
+        def __init__(self, verify):
+            calls["verify"] = verify
+
+    fetcher = _create_article_content_fetcher(
+        http_client_cls=FakeHttpClient,
+        ca_bundle_path="combined.pem",
+        tls_verify=True,
+    )
+
+    assert isinstance(fetcher.http_client, FakeHttpClient)
+    assert calls["verify"] == "combined.pem"
+
+
+def test_create_article_content_fetcher_can_disable_tls_verification():
+    calls = {}
+
+    class FakeHttpClient:
+        def __init__(self, verify):
+            calls["verify"] = verify
+
+    _create_article_content_fetcher(
+        http_client_cls=FakeHttpClient,
+        ca_bundle_path="combined.pem",
+        tls_verify=False,
+    )
+
+    assert calls["verify"] is False

@@ -42,6 +42,8 @@ def test_dashboard_assets_are_served(tmp_path):
     assert "provider-setup-step" in css_response.text
     assert "button:disabled" in css_response.text
     assert "renderRunDetail" in js_response.text
+    assert "formatApiError" in js_response.text
+    assert "payload.detail" in js_response.text
     assert "renderArticleRows" in js_response.text
     assert "source-login-warning-list" in js_response.text
     assert "article-analysis" in js_response.text

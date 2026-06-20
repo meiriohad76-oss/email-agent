@@ -9,6 +9,7 @@ def test_config_loads_defaults_for_local_development(tmp_path, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("GMAIL_CREDENTIALS_PATH", raising=False)
     monkeypatch.delenv("GMAIL_TOKEN_PATH", raising=False)
+    monkeypatch.delenv("TLS_VERIFY", raising=False)
 
     config = AppConfig.from_env()
 
@@ -18,6 +19,7 @@ def test_config_loads_defaults_for_local_development(tmp_path, monkeypatch):
     assert config.openai_api_key is None
     assert config.gmail_credentials_path == "config/gmail_credentials.json"
     assert config.gmail_token_path == "data/gmail_token.json"
+    assert config.tls_verify is True
 
 
 def test_config_reads_environment_overrides(tmp_path, monkeypatch):
@@ -28,6 +30,7 @@ def test_config_reads_environment_overrides(tmp_path, monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "openai-key")
     monkeypatch.setenv("GMAIL_CREDENTIALS_PATH", "secrets/gmail.json")
     monkeypatch.setenv("GMAIL_TOKEN_PATH", "secrets/token.json")
+    monkeypatch.setenv("TLS_VERIFY", "false")
 
     config = AppConfig.from_env()
 
@@ -37,6 +40,7 @@ def test_config_reads_environment_overrides(tmp_path, monkeypatch):
     assert config.openai_api_key == "openai-key"
     assert config.gmail_credentials_path == "secrets/gmail.json"
     assert config.gmail_token_path == "secrets/token.json"
+    assert config.tls_verify is False
 
 
 def test_config_reads_dotenv_file(tmp_path, monkeypatch):
@@ -47,6 +51,7 @@ def test_config_reads_dotenv_file(tmp_path, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("GMAIL_CREDENTIALS_PATH", raising=False)
     monkeypatch.delenv("GMAIL_TOKEN_PATH", raising=False)
+    monkeypatch.delenv("TLS_VERIFY", raising=False)
     (tmp_path / ".env").write_text(
         "\n".join(
             [
@@ -56,6 +61,7 @@ def test_config_reads_dotenv_file(tmp_path, monkeypatch):
                 "OPENAI_API_KEY=openai-from-dotenv",
                 "GMAIL_CREDENTIALS_PATH=config/dotenv-gmail.json",
                 "GMAIL_TOKEN_PATH=data/dotenv-token.json",
+                "TLS_VERIFY=0",
             ]
         ),
         encoding="utf-8",
@@ -69,3 +75,4 @@ def test_config_reads_dotenv_file(tmp_path, monkeypatch):
     assert config.openai_api_key == "openai-from-dotenv"
     assert config.gmail_credentials_path == "config/dotenv-gmail.json"
     assert config.gmail_token_path == "data/dotenv-token.json"
+    assert config.tls_verify is False
