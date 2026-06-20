@@ -3,6 +3,8 @@ import csv
 from io import BytesIO, StringIO
 import json
 import re
+from xml.etree import ElementTree
+from zipfile import ZipFile, ZIP_DEFLATED
 
 from openpyxl import load_workbook
 
@@ -42,7 +44,11 @@ def _parse_csv(content: bytes) -> ParsedWatchlist:
 
 
 def _parse_xlsx(content: bytes) -> ParsedWatchlist:
-    workbook = load_workbook(BytesIO(content), read_only=True, data_only=True)
+    workbook = load_workbook(
+        BytesIO(_strip_conditional_formatting(content)),
+        read_only=True,
+        data_only=True,
+    )
     sheet = workbook.active
     values = list(sheet.iter_rows(values_only=True))
     if not values:
@@ -57,6 +63,30 @@ def _parse_xlsx(content: bytes) -> ParsedWatchlist:
         if any(mapped.values()):
             rows.append(mapped)
     return ParsedWatchlist(columns=columns, rows=rows)
+
+
+def _strip_conditional_formatting(content: bytes) -> bytes:
+    source = BytesIO(content)
+    target = BytesIO()
+    with ZipFile(source, "r") as src, ZipFile(target, "w", ZIP_DEFLATED) as dst:
+        for item in src.infolist():
+            data = src.read(item.filename)
+            if item.filename.startswith("xl/worksheets/") and item.filename.endswith(".xml"):
+                data = _strip_conditional_formatting_xml(data)
+            dst.writestr(item, data)
+    return target.getvalue()
+
+
+def _strip_conditional_formatting_xml(data: bytes) -> bytes:
+    root = ElementTree.fromstring(data)
+    namespace = ""
+    if root.tag.startswith("{"):
+        namespace = root.tag.split("}", 1)[0][1:]
+    conditional_tag = f"{{{namespace}}}conditionalFormatting" if namespace else "conditionalFormatting"
+    for child in list(root):
+        if child.tag == conditional_tag:
+            root.remove(child)
+    return ElementTree.tostring(root, encoding="utf-8", xml_declaration=True)
 
 
 @dataclass(frozen=True)
