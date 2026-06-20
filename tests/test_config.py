@@ -10,6 +10,7 @@ def test_config_loads_defaults_for_local_development(tmp_path, monkeypatch):
     monkeypatch.delenv("GMAIL_CREDENTIALS_PATH", raising=False)
     monkeypatch.delenv("GMAIL_TOKEN_PATH", raising=False)
     monkeypatch.delenv("TLS_VERIFY", raising=False)
+    monkeypatch.delenv("SOURCE_LOGIN_CONFIRMATION_PATH", raising=False)
 
     config = AppConfig.from_env()
 
@@ -20,6 +21,7 @@ def test_config_loads_defaults_for_local_development(tmp_path, monkeypatch):
     assert config.gmail_credentials_path == "config/gmail_credentials.json"
     assert config.gmail_token_path == "data/gmail_token.json"
     assert config.tls_verify is True
+    assert config.source_login_confirmation_path == "data/source_login_confirmed.json"
 
 
 def test_config_reads_environment_overrides(tmp_path, monkeypatch):
@@ -31,6 +33,7 @@ def test_config_reads_environment_overrides(tmp_path, monkeypatch):
     monkeypatch.setenv("GMAIL_CREDENTIALS_PATH", "secrets/gmail.json")
     monkeypatch.setenv("GMAIL_TOKEN_PATH", "secrets/token.json")
     monkeypatch.setenv("TLS_VERIFY", "false")
+    monkeypatch.setenv("SOURCE_LOGIN_CONFIRMATION_PATH", "state/source-logins.json")
 
     config = AppConfig.from_env()
 
@@ -41,6 +44,7 @@ def test_config_reads_environment_overrides(tmp_path, monkeypatch):
     assert config.gmail_credentials_path == "secrets/gmail.json"
     assert config.gmail_token_path == "secrets/token.json"
     assert config.tls_verify is False
+    assert config.source_login_confirmation_path == "state/source-logins.json"
 
 
 def test_config_reads_dotenv_file(tmp_path, monkeypatch):
@@ -52,6 +56,7 @@ def test_config_reads_dotenv_file(tmp_path, monkeypatch):
     monkeypatch.delenv("GMAIL_CREDENTIALS_PATH", raising=False)
     monkeypatch.delenv("GMAIL_TOKEN_PATH", raising=False)
     monkeypatch.delenv("TLS_VERIFY", raising=False)
+    monkeypatch.delenv("SOURCE_LOGIN_CONFIRMATION_PATH", raising=False)
     (tmp_path / ".env").write_text(
         "\n".join(
             [
@@ -62,6 +67,7 @@ def test_config_reads_dotenv_file(tmp_path, monkeypatch):
                 "GMAIL_CREDENTIALS_PATH=config/dotenv-gmail.json",
                 "GMAIL_TOKEN_PATH=data/dotenv-token.json",
                 "TLS_VERIFY=0",
+                "SOURCE_LOGIN_CONFIRMATION_PATH=data/source-logins.json",
             ]
         ),
         encoding="utf-8",
@@ -76,3 +82,4 @@ def test_config_reads_dotenv_file(tmp_path, monkeypatch):
     assert config.gmail_credentials_path == "config/dotenv-gmail.json"
     assert config.gmail_token_path == "data/dotenv-token.json"
     assert config.tls_verify is False
+    assert config.source_login_confirmation_path == "data/source-logins.json"

@@ -10,7 +10,11 @@ import httpx
 
 from email_article_analyzer.auth import GMAIL_SCOPES
 from email_article_analyzer.article_analysis import OpenAIArticleAnalyzer
-from email_article_analyzer.article_content import ArticleContentFetcher
+from email_article_analyzer.article_content import (
+    ArticleContentFetcher,
+    BrowserArticleContentFetcher,
+    HybridArticleContentFetcher,
+)
 from email_article_analyzer.config import AppConfig
 from email_article_analyzer.gmail import GmailDiscoveryService
 from email_article_analyzer.providers.gmail_api import GmailApiProvider
@@ -90,8 +94,14 @@ def _create_article_content_fetcher(
     tls_verify: bool = True,
 ) -> ArticleContentFetcher:
     verify = ca_bundle_path or _default_ca_bundle_path()
-    return ArticleContentFetcher(
+    http_fetcher = ArticleContentFetcher(
         http_client=http_client_cls(verify=verify if tls_verify else False)
+    )
+    browser_fetcher = BrowserArticleContentFetcher()
+    return HybridArticleContentFetcher(
+        http_fetcher=http_fetcher,
+        browser_fetcher=browser_fetcher,
+        browser_domains=("seekingalpha.com",),
     )
 
 

@@ -90,6 +90,21 @@ async function refreshProviderStatus() {
   }
 }
 
+async function confirmSourceLogins() {
+  writeResult("run-start-result", "Confirming source logins...");
+  try {
+    const payload = await fetchJson("/api/source-logins/confirm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sources: ["seeking_alpha"] }),
+    });
+    writeResult("run-start-result", payload);
+    await refreshProviderStatus();
+  } catch (error) {
+    writeResult("run-start-result", error.message);
+  }
+}
+
 function setRunDetailStatus(message, isError = false) {
   const status = document.getElementById("run-detail-status");
   status.textContent = message;
@@ -350,6 +365,10 @@ document.getElementById("watchlist-upload").addEventListener("submit", async (ev
     writeResult("watchlist-result", error.message);
   }
 });
+
+document
+  .getElementById("source-login-confirm-button")
+  .addEventListener("click", confirmSourceLogins);
 
 document.getElementById("run-start-form").addEventListener("submit", async (event) => {
   event.preventDefault();

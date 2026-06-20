@@ -40,6 +40,19 @@ button:hover {
   background: var(--accent-strong);
 }
 
+button.secondary-button {
+  background: #ffffff;
+  border: 1px solid var(--line);
+  color: var(--accent-strong);
+  margin: 10px 0;
+  width: 100%;
+}
+
+button.secondary-button:hover {
+  border-color: var(--accent-strong);
+  color: white;
+}
+
 button:disabled {
   background: #b8c3c7;
   cursor: not-allowed;

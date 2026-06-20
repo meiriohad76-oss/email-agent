@@ -4,6 +4,7 @@ from typing import Any
 from fastapi import APIRouter, Request
 
 from email_article_analyzer.config import AppConfig
+from email_article_analyzer.source_logins import SourceLoginStore
 
 router = APIRouter(prefix="/api/status", tags=["status"])
 
@@ -35,6 +36,9 @@ def provider_status(config: AppConfig) -> dict[str, Any]:
     if not token_exists:
         gmail_details.append("Gmail token file is missing")
 
+    source_login_confirmation = SourceLoginStore(
+        config.source_login_confirmation_path
+    ).get()
     providers = {
         "openai": _ready_if_present(
             config.openai_api_key,
@@ -57,9 +61,13 @@ def provider_status(config: AppConfig) -> dict[str, Any]:
             else [],
         ),
         "source_logins": _provider(
-            "action_required",
-            ["Confirm premium source logins are available before running article extraction"],
-            ["Confirm source website sessions before extraction"],
+            source_login_confirmation.status,
+            []
+            if source_login_confirmation.status == "ready"
+            else ["Confirm premium source logins are available before running article extraction"],
+            []
+            if source_login_confirmation.status == "ready"
+            else ["Confirm source website sessions before extraction"],
         ),
     }
     overall_status = "ready"

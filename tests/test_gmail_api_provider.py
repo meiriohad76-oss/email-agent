@@ -143,6 +143,27 @@ def test_gmail_api_provider_searches_and_reads_messages():
     assert ("messages.get", "me", "msg-1", "full") in service.calls
 
 
+def test_gmail_api_provider_reads_message_by_id():
+    raw_message = {
+        "id": "msg-1",
+        "threadId": "thread-1",
+        "labelIds": ["UNREAD"],
+        "payload": {
+            "headers": [{"name": "Subject", "value": "Story"}],
+            "body": {"data": encoded("Plain text")},
+            "mimeType": "text/plain",
+        },
+    }
+    service = FakeGmailService(messages={"msg-1": raw_message})
+    provider = GmailApiProvider(service=service)
+
+    message = provider.read_message("msg-1")
+
+    assert message.message_id == "msg-1"
+    assert message.subject == "Story"
+    assert ("messages.get", "me", "msg-1", "full") in service.calls
+
+
 def test_gmail_api_provider_adds_existing_label_by_name():
     service = FakeGmailService(messages={}, labels=[{"id": "Label_1", "name": "Analyzed"}])
     provider = GmailApiProvider(service=service)

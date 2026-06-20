@@ -28,6 +28,15 @@ class GmailApiProvider:
             messages.append(parse_gmail_message(raw_message))
         return messages
 
+    def read_message(self, message_id: str) -> GmailMessage:
+        raw_message = (
+            self.service.users()
+            .messages()
+            .get(userId=self.user_id, id=message_id, format="full")
+            .execute()
+        )
+        return parse_gmail_message(raw_message)
+
     def add_label(self, message_id: str, label: str) -> None:
         label_id = self._ensure_label_id(label)
         self._modify_message(message_id, add_label_ids=[label_id], remove_label_ids=[])

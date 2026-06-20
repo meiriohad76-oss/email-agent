@@ -14,6 +14,7 @@ class AppConfig:
     gmail_credentials_path: str
     gmail_token_path: str
     tls_verify: bool = True
+    source_login_confirmation_path: str = "data/source_login_confirmed.json"
 
     @classmethod
     def from_env(cls) -> "AppConfig":
@@ -31,6 +32,10 @@ class AppConfig:
             ),
             gmail_token_path=os.getenv("GMAIL_TOKEN_PATH", "data/gmail_token.json"),
             tls_verify=_read_bool_env("TLS_VERIFY", default=True),
+            source_login_confirmation_path=os.getenv(
+                "SOURCE_LOGIN_CONFIRMATION_PATH",
+                "data/source_login_confirmed.json",
+            ),
         )
 
 

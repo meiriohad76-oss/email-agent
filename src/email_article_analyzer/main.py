@@ -5,6 +5,7 @@ from email_article_analyzer.api.dashboard import STATIC_DIR
 from email_article_analyzer.api.dashboard import router as dashboard_router
 from email_article_analyzer.api.health import router as health_router
 from email_article_analyzer.api.runs import router as runs_router
+from email_article_analyzer.api.source_logins import router as source_logins_router
 from email_article_analyzer.api.status import router as status_router
 from email_article_analyzer.api.watchlist import router as watchlist_router
 from email_article_analyzer.config import AppConfig
@@ -29,6 +30,7 @@ def create_app(database_path: str | None = None, run_orchestrator=None) -> FastA
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     app.include_router(dashboard_router)
     app.include_router(health_router)
+    app.include_router(source_logins_router)
     app.include_router(status_router)
     app.include_router(runs_router)
     app.include_router(watchlist_router)

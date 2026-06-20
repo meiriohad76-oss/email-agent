@@ -223,7 +223,8 @@ def test_create_article_content_fetcher_uses_verified_http_client():
         tls_verify=True,
     )
 
-    assert isinstance(fetcher.http_client, FakeHttpClient)
+    assert isinstance(fetcher.http_fetcher.http_client, FakeHttpClient)
+    assert fetcher.browser_domains == ("seekingalpha.com",)
     assert calls["verify"] == "combined.pem"
 
 
