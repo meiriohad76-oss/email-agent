@@ -1,10 +1,13 @@
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from email_article_analyzer.api.status import missing_essential_providers
 from email_article_analyzer.api.status import provider_status
+from email_article_analyzer.model_defaults import DEFAULT_EXTRACTION_MODEL
+from email_article_analyzer.model_defaults import DEFAULT_SUMMARY_MODEL
+from email_article_analyzer.model_defaults import normalize_model_name
 from email_article_analyzer.repositories import RunRepository
 
 router = APIRouter(prefix="/api/runs", tags=["runs"])
@@ -13,6 +16,13 @@ router = APIRouter(prefix="/api/runs", tags=["runs"])
 class CreateRunRequest(BaseModel):
     extraction_model: str | None = None
     summary_model: str | None = None
+
+    @field_validator("extraction_model", "summary_model", mode="before")
+    @classmethod
+    def validate_model_name(cls, value: object) -> object:
+        if value is None or isinstance(value, str):
+            return value
+        raise ValueError("model name must be a string")
 
 
 @router.post("")
@@ -35,9 +45,17 @@ def create_run(payload: CreateRunRequest, request: Request) -> dict[str, Any]:
             detail="Run orchestrator is not configured",
         )
     try:
+        extraction_model = normalize_model_name(
+            payload.extraction_model,
+            DEFAULT_EXTRACTION_MODEL,
+        )
+        summary_model = normalize_model_name(
+            payload.summary_model,
+            DEFAULT_SUMMARY_MODEL,
+        )
         result = orchestrator.start_discovery_run(
-            extraction_model=payload.extraction_model,
-            summary_model=payload.summary_model,
+            extraction_model=extraction_model,
+            summary_model=summary_model,
         )
     except Exception as exc:
         raise HTTPException(

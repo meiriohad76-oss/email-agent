@@ -6,6 +6,9 @@ from email_article_analyzer.article_content import (
     extract_readable_text_from_html,
 )
 from email_article_analyzer.gmail import GmailCandidate
+from email_article_analyzer.model_defaults import DEFAULT_EXTRACTION_MODEL
+from email_article_analyzer.model_defaults import DEFAULT_SUMMARY_MODEL
+from email_article_analyzer.model_defaults import normalize_model_name
 from email_article_analyzer.repositories import GmailDiscoveryRepository, RunRepository
 
 
@@ -37,6 +40,14 @@ class RunOrchestrator:
         extraction_model: str | None,
         summary_model: str | None,
     ) -> RunResult:
+        extraction_model = normalize_model_name(
+            extraction_model,
+            DEFAULT_EXTRACTION_MODEL,
+        )
+        summary_model = normalize_model_name(
+            summary_model,
+            DEFAULT_SUMMARY_MODEL,
+        )
         run_id = self.run_repository.create_run(
             extraction_model=extraction_model,
             summary_model=summary_model,
@@ -83,7 +94,7 @@ class RunOrchestrator:
         self,
         run_id: int,
         candidate: GmailCandidate,
-        summary_model: str | None,
+        summary_model: str,
     ) -> None:
         message = candidate.message
         message_row_id = self.gmail_repository.save_message(

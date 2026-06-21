@@ -395,11 +395,14 @@ document.getElementById("run-start-form").addEventListener("submit", async (even
     return;
   }
   const form = new FormData(event.currentTarget);
+  const extractionModel = String(form.get("extraction_model") || "").trim();
+  const summaryModel = String(form.get("summary_model") || "").trim();
   const body = {
-    extraction_model: form.get("extraction_model") || null,
-    summary_model: form.get("summary_model") || null,
+    extraction_model: extractionModel || null,
+    summary_model: summaryModel || null,
   };
   writeResult("run-start-result", "Starting run...");
+  const progressRefresh = window.setInterval(refreshRecentRuns, 5000);
   try {
     const payload = await fetchJson("/api/runs", {
       method: "POST",
@@ -410,6 +413,9 @@ document.getElementById("run-start-form").addEventListener("submit", async (even
     await refreshRecentRuns();
   } catch (error) {
     writeResult("run-start-result", error.message);
+  } finally {
+    window.clearInterval(progressRefresh);
+    await refreshRecentRuns();
   }
 });
 

@@ -3,6 +3,7 @@ import json
 import pytest
 
 from email_article_analyzer.article_analysis import OpenAIArticleAnalyzer
+from email_article_analyzer.model_defaults import DEFAULT_SUMMARY_MODEL
 
 
 class FakeResponses:
@@ -83,3 +84,30 @@ def test_openai_article_analyzer_rejects_high_confidence_without_two_evidence_it
             article_text="Raised guide.",
             model="gpt-summary",
         )
+
+
+def test_openai_article_analyzer_uses_default_model_when_input_is_blank():
+    client = FakeOpenAIClient(
+        json.dumps(
+            {
+                "summary": "A neutral read.",
+                "stance": "hold",
+                "confidence": 0.62,
+                "supporting_evidence": ["Revenue guide was maintained"],
+                "mentioned_tickers": ["NVDA"],
+            }
+        )
+    )
+    analyzer = OpenAIArticleAnalyzer(client=client)
+
+    result = analyzer.analyze_article(
+        url="https://example.com/article",
+        source_key="example",
+        email_subject="NVDA update",
+        article_title=None,
+        article_text="Revenue guide was maintained.",
+        model=" ",
+    )
+
+    assert client.responses.calls[0]["model"] == DEFAULT_SUMMARY_MODEL
+    assert result.model == DEFAULT_SUMMARY_MODEL

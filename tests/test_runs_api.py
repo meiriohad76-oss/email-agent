@@ -2,6 +2,8 @@ from fastapi.testclient import TestClient
 
 from email_article_analyzer.db import initialize_database
 from email_article_analyzer.main import create_app
+from email_article_analyzer.model_defaults import DEFAULT_EXTRACTION_MODEL
+from email_article_analyzer.model_defaults import DEFAULT_SUMMARY_MODEL
 from email_article_analyzer.repositories import GmailDiscoveryRepository, RunRepository
 from email_article_analyzer.run_orchestration import RunResult
 
@@ -57,6 +59,45 @@ def test_create_run_endpoint_starts_discovery_run(tmp_path, monkeypatch):
         "needed_source_logins": ["seeking_alpha", "zacks"],
     }
     assert fake_orchestrator.calls == [("gpt-extract", "gpt-summary")]
+
+
+def test_create_run_endpoint_normalizes_blank_models_to_defaults(tmp_path, monkeypatch):
+    configure_ready_essentials(tmp_path, monkeypatch)
+    fake_orchestrator = FakeRunOrchestrator()
+    app = create_app(
+        database_path=str(tmp_path / "app.db"),
+        run_orchestrator=fake_orchestrator,
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/runs",
+        json={"extraction_model": "  ", "summary_model": None},
+    )
+
+    assert response.status_code == 200
+    assert fake_orchestrator.calls == [
+        (DEFAULT_EXTRACTION_MODEL, DEFAULT_SUMMARY_MODEL)
+    ]
+
+
+def test_create_run_endpoint_rejects_object_model_values(tmp_path, monkeypatch):
+    configure_ready_essentials(tmp_path, monkeypatch)
+    fake_orchestrator = FakeRunOrchestrator()
+    app = create_app(
+        database_path=str(tmp_path / "app.db"),
+        run_orchestrator=fake_orchestrator,
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/runs",
+        json={"extraction_model": {"name": "gpt"}, "summary_model": "gpt-summary"},
+    )
+
+    assert response.status_code == 422
+    assert "model name must be a string" in response.text
+    assert fake_orchestrator.calls == []
 
 
 def test_create_run_endpoint_rejects_when_essential_providers_are_not_ready(tmp_path, monkeypatch):

@@ -73,6 +73,12 @@ class FakePage:
     def wait_for_load_state(self, state, timeout):
         self.calls.append(("wait_for_load_state", state, timeout))
 
+    def set_default_timeout(self, timeout):
+        self.calls.append(("set_default_timeout", timeout))
+
+    def set_default_navigation_timeout(self, timeout):
+        self.calls.append(("set_default_navigation_timeout", timeout))
+
     def title(self):
         return "Seeking Alpha Story"
 
@@ -99,7 +105,7 @@ class FakeBrowserSession:
         self.opened_login_urls = []
 
     def page_for_url(self, url):
-        self.context.page.goto(url, wait_until="domcontentloaded", timeout=60000)
+        self.context.page.goto(url, wait_until="domcontentloaded", timeout=20000)
         return self.context.page
 
     def close_page(self, page):
@@ -132,7 +138,9 @@ def test_browser_article_content_fetcher_uses_visible_persistent_chrome_context(
         "headless": False,
         "channel": "chrome",
     }
-    assert ("goto", "https://seekingalpha.com/article/1", "domcontentloaded", 60000) in context.page.calls
+    assert ("set_default_timeout", 20000) in context.page.calls
+    assert ("set_default_navigation_timeout", 20000) in context.page.calls
+    assert ("goto", "https://seekingalpha.com/article/1", "domcontentloaded", 20000) in context.page.calls
     assert ("locator", "article") in context.page.calls
     assert context.closed is True
     assert content.final_url == "https://seekingalpha.com/article/1"
@@ -147,7 +155,7 @@ def test_browser_article_content_fetcher_can_reuse_shared_browser_session():
 
     content = fetcher.fetch("https://seekingalpha.com/article/1")
 
-    assert ("goto", "https://seekingalpha.com/article/1", "domcontentloaded", 60000) in session.context.page.calls
+    assert ("goto", "https://seekingalpha.com/article/1", "domcontentloaded", 20000) in session.context.page.calls
     assert session.context.closed is True
     assert content.extracted_text == "Authenticated article text"
 

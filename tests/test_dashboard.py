@@ -18,6 +18,8 @@ def test_dashboard_route_serves_operational_shell(tmp_path):
     assert "provider-status-list" in response.text
     assert "source-login-open-button" in response.text
     assert "source-login-confirm-button" in response.text
+    assert 'value="gpt-5.4"' in response.text
+    assert 'value="gpt-5.4-mini"' in response.text
     assert "run-lookup-form" in response.text
     assert "run-detail-summary" in response.text
     assert "run-event-timeline" in response.text
@@ -48,6 +50,10 @@ def test_dashboard_assets_are_served(tmp_path):
     assert "formatContentStatus" in js_response.text
     assert "openSourceLoginBrowser" in js_response.text
     assert "confirmSourceLogins" in js_response.text
+    assert 'String(form.get("extraction_model") || "").trim()' in js_response.text
+    assert 'String(form.get("summary_model") || "").trim()' in js_response.text
+    assert "window.setInterval(refreshRecentRuns, 5000)" in js_response.text
+    assert "window.clearInterval(progressRefresh)" in js_response.text
     assert "email fallback" in js_response.text
     assert "payload.detail" in js_response.text
     assert "renderArticleRows" in js_response.text

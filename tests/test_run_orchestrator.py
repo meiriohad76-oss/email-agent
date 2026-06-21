@@ -2,6 +2,8 @@ from email_article_analyzer.db import initialize_database
 from email_article_analyzer.article_analysis import ArticleAnalysisResult
 from email_article_analyzer.gmail import GmailCandidate, GmailMessage
 from email_article_analyzer.link_extraction import ExtractedLink
+from email_article_analyzer.model_defaults import DEFAULT_EXTRACTION_MODEL
+from email_article_analyzer.model_defaults import DEFAULT_SUMMARY_MODEL
 from email_article_analyzer.repositories import GmailDiscoveryRepository, RunRepository
 from email_article_analyzer.run_orchestration import RunOrchestrator
 from email_article_analyzer.sources import TRUSTED_SOURCES
@@ -194,6 +196,48 @@ def test_run_orchestrator_analyzes_discovered_headline_link_when_analyzer_is_con
     analysis = gmail_repo.get_article_analysis(1)
     assert analysis["summary"] == "Margins improved after a stronger guide."
     assert analysis["stance"] == "buy_watch"
+
+
+def test_run_orchestrator_uses_default_models_when_inputs_are_blank(tmp_path):
+    db_path = str(tmp_path / "app.db")
+    initialize_database(db_path)
+    source = next(source for source in TRUSTED_SOURCES if source.source_key == "seeking_alpha")
+    candidate = GmailCandidate(
+        message=GmailMessage(
+            message_id="msg-1",
+            thread_id="thread-1",
+            sender="alerts@seekingalpha.com",
+            subject="Story",
+            labels=["UNREAD"],
+            html_body="<h1>Story</h1>",
+            text_body="",
+        ),
+        source=source,
+        headline_link=ExtractedLink(
+            url="https://seekingalpha.com/article/1",
+            detection_method="headline_anchor",
+            detection_confidence=0.9,
+        ),
+    )
+    analyzer = FakeArticleAnalyzer()
+    run_repo = RunRepository(db_path)
+    gmail_repo = GmailDiscoveryRepository(db_path)
+    orchestrator = RunOrchestrator(
+        run_repository=run_repo,
+        gmail_repository=gmail_repo,
+        discovery_service=FakeDiscoveryService([candidate]),
+        article_analyzer=analyzer,
+    )
+
+    result = orchestrator.start_discovery_run(
+        extraction_model="",
+        summary_model=None,
+    )
+
+    run = run_repo.get_run(result.run_id)
+    assert run["extraction_model"] == DEFAULT_EXTRACTION_MODEL
+    assert run["summary_model"] == DEFAULT_SUMMARY_MODEL
+    assert analyzer.calls[0]["model"] == DEFAULT_SUMMARY_MODEL
 
 
 def test_run_orchestrator_records_failed_content_fetch_and_falls_back_to_headline_analysis(tmp_path):

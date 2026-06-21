@@ -100,7 +100,7 @@ class BrowserArticleContentFetcher:
         context_factory=None,
         browser_session=None,
         channel: str = "chrome",
-        navigation_timeout_ms: int = 60000,
+        navigation_timeout_ms: int = 20000,
     ):
         self.profile_path = str(profile_path)
         self.context_factory = context_factory or self._playwright_context_factory
@@ -123,13 +123,14 @@ class BrowserArticleContentFetcher:
         )
         try:
             page = context.new_page()
+            _set_page_timeouts(page, self.navigation_timeout_ms)
             response = page.goto(
                 url,
                 wait_until="domcontentloaded",
                 timeout=self.navigation_timeout_ms,
             )
             try:
-                page.wait_for_load_state("networkidle", timeout=10000)
+                page.wait_for_load_state("networkidle", timeout=5000)
             except Exception:
                 pass
             return _content_from_page(page, response)
@@ -158,7 +159,7 @@ class PersistentBrowserSession:
         profile_path: str | Path = "data/browser-profile",
         channel: str = "chrome",
         context_factory=None,
-        navigation_timeout_ms: int = 60000,
+        navigation_timeout_ms: int = 20000,
     ):
         self.profile_path = str(profile_path)
         self.channel = channel
@@ -172,6 +173,7 @@ class PersistentBrowserSession:
 
     def page_for_url(self, url: str):
         page = self._ensure_context().new_page()
+        _set_page_timeouts(page, self.navigation_timeout_ms)
         page.goto(
             url,
             wait_until="domcontentloaded",
@@ -260,12 +262,23 @@ class HybridArticleContentFetcher:
 def _read_visible_page_text(page) -> str:
     for selector in ("article", "main", "body"):
         try:
-            text = page.locator(selector).inner_text(timeout=5000)
+            text = page.locator(selector).inner_text(timeout=3000)
         except Exception:
             continue
         if text.strip():
             return text.strip()
     return ""
+
+
+def _set_page_timeouts(page, timeout_ms: int) -> None:
+    for method_name in ("set_default_timeout", "set_default_navigation_timeout"):
+        method = getattr(page, method_name, None)
+        if method is None:
+            continue
+        try:
+            method(timeout_ms)
+        except Exception:
+            pass
 
 
 def _content_from_page(page, response) -> ArticleContent:

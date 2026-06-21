@@ -2,6 +2,9 @@ import json
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from email_article_analyzer.model_defaults import DEFAULT_SUMMARY_MODEL
+from email_article_analyzer.model_defaults import normalize_model_name
+
 
 @dataclass(frozen=True)
 class ArticleAnalysisResult:
@@ -77,6 +80,7 @@ class OpenAIArticleAnalyzer:
         article_text: str | None,
         model: str | None,
     ) -> ArticleAnalysisResult:
+        model = normalize_model_name(model, DEFAULT_SUMMARY_MODEL)
         response = self.client.responses.create(
             model=model,
             input=[
