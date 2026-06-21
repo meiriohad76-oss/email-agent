@@ -183,7 +183,31 @@ def test_list_discovered_articles_marks_mentioned_tickers_in_active_watchlist(tm
         confidence=0.75,
         supporting_evidence=["Evidence"],
         mentioned_tickers=["AAPL", "MSFT"],
-        raw_response={},
+        raw_response={
+            "sentiment": "bullish",
+            "recommendation": "buy",
+            "price_targets": [
+                {
+                    "ticker": "AAPL",
+                    "target_price": 250,
+                    "currency": "USD",
+                    "timeframe": "12 months",
+                    "source_text": "$250 target",
+                }
+            ],
+            "actionable_data": [
+                {
+                    "ticker": "AAPL",
+                    "sentiment": "bullish",
+                    "recommendation": "buy",
+                    "timeframe": "12 months",
+                    "catalysts": ["Services growth"],
+                    "risks": ["Valuation"],
+                    "financial_details": ["Price target $250"],
+                    "evidence": ["Evidence"],
+                }
+            ],
+        },
     )
 
     articles = RunRepository(db_path).list_discovered_articles(run_id=run_id)
@@ -192,3 +216,7 @@ def test_list_discovered_articles_marks_mentioned_tickers_in_active_watchlist(tm
         {"ticker": "AAPL", "in_portfolio": True},
         {"ticker": "MSFT", "in_portfolio": False},
     ]
+    assert articles[0]["analysis"]["sentiment"] == "bullish"
+    assert articles[0]["analysis"]["recommendation"] == "buy"
+    assert articles[0]["analysis"]["price_targets"][0]["target_price"] == 250
+    assert articles[0]["analysis"]["actionable_data"][0]["catalysts"] == ["Services growth"]

@@ -141,7 +141,8 @@ class RunRepository:
                     article_analyses.stance AS analysis_stance,
                     article_analyses.confidence AS analysis_confidence,
                     article_analyses.supporting_evidence_json,
-                    article_analyses.mentioned_tickers_json
+                    article_analyses.mentioned_tickers_json,
+                    article_analyses.raw_response_json
                 FROM article_links
                 JOIN gmail_messages ON gmail_messages.id = article_links.gmail_message_id
                 LEFT JOIN article_contents ON article_contents.id = (
@@ -195,11 +196,14 @@ class RunRepository:
             }
         if row["analysis_provider"] is not None:
             mentioned_tickers = json.loads(row["mentioned_tickers_json"])
+            raw_response = _json_object(row.get("raw_response_json"))
             article["analysis"] = {
                 "provider": row["analysis_provider"],
                 "model": row["analysis_model"],
                 "summary": row["analysis_summary"],
                 "stance": row["analysis_stance"],
+                "sentiment": raw_response.get("sentiment", "unclear"),
+                "recommendation": raw_response.get("recommendation", "unclear"),
                 "confidence": row["analysis_confidence"],
                 "supporting_evidence": json.loads(row["supporting_evidence_json"]),
                 "mentioned_tickers": mentioned_tickers,
@@ -210,6 +214,8 @@ class RunRepository:
                     }
                     for ticker in mentioned_tickers
                 ],
+                "price_targets": _json_list(raw_response.get("price_targets")),
+                "actionable_data": _json_list(raw_response.get("actionable_data")),
             }
         return article
 
@@ -441,3 +447,19 @@ class GmailDiscoveryRepository:
         if row is None:
             raise KeyError(f"Article analysis not found: {row_id}")
         return dict(row)
+
+
+def _json_object(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if not value:
+        return {}
+    try:
+        parsed = json.loads(value)
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _json_list(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []

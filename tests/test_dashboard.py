@@ -62,6 +62,9 @@ def test_dashboard_assets_are_served(tmp_path):
     assert "supporting_evidence" in js_response.text
     assert "fetch_status" in js_response.text
     assert "mentioned_ticker_details" in js_response.text
+    assert "price_targets" in js_response.text
+    assert "actionable_data" in js_response.text
+    assert "Recommendation" in js_response.text
     assert "in-portfolio" in css_response.text
     assert "not-in-portfolio" in css_response.text
     assert "article-row" in css_response.text

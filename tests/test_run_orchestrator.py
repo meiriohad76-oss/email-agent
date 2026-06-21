@@ -47,10 +47,58 @@ class FakeArticleAnalyzer:
             model=model,
             summary="Margins improved after a stronger guide.",
             stance="buy_watch",
+            sentiment="bullish",
+            recommendation="buy",
             confidence=0.82,
             supporting_evidence=["Raised FY guide", "Gross margin expanded"],
             mentioned_tickers=["NVDA"],
-            raw_response={"id": "resp-1"},
+            price_targets=[
+                {
+                    "ticker": "NVDA",
+                    "target_price": 150.0,
+                    "currency": "USD",
+                    "timeframe": "12 months",
+                    "source_text": "$150 target",
+                }
+            ],
+            actionable_data=[
+                {
+                    "ticker": "NVDA",
+                    "sentiment": "bullish",
+                    "recommendation": "buy",
+                    "timeframe": "12 months",
+                    "catalysts": ["Raised FY guide"],
+                    "risks": ["Margin compression"],
+                    "financial_details": ["Gross margin expanded"],
+                    "evidence": ["Raised FY guide", "Gross margin expanded"],
+                }
+            ],
+            raw_response={
+                "id": "resp-1",
+                "sentiment": "bullish",
+                "recommendation": "buy",
+                "price_targets": [
+                    {
+                        "ticker": "NVDA",
+                        "target_price": 150.0,
+                        "currency": "USD",
+                        "timeframe": "12 months",
+                        "source_text": "$150 target",
+                    }
+                ],
+                "actionable_data": [
+                    {
+                        "ticker": "NVDA",
+                        "sentiment": "bullish",
+                        "recommendation": "buy",
+                        "timeframe": "12 months",
+                        "catalysts": ["Raised FY guide"],
+                        "risks": ["Margin compression"],
+                        "financial_details": ["Gross margin expanded"],
+                        "evidence": ["Raised FY guide", "Gross margin expanded"],
+                    }
+                ],
+            },
         )
 
 

@@ -221,12 +221,16 @@ def test_get_run_endpoint_returns_status_counts_and_events(tmp_path):
                 "model": "gpt-summary",
                 "summary": "Margins improved.",
                 "stance": "buy_watch",
+                "sentiment": "unclear",
+                "recommendation": "unclear",
                 "confidence": 0.82,
                 "supporting_evidence": ["Raised guide", "Margin expansion"],
                 "mentioned_tickers": ["NVDA"],
                 "mentioned_ticker_details": [
                     {"ticker": "NVDA", "in_portfolio": False},
                 ],
+                "price_targets": [],
+                "actionable_data": [],
             },
         }
     ]

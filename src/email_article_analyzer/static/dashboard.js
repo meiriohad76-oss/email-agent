@@ -249,6 +249,8 @@ function renderArticleRows(articles) {
       const confidence = Math.round((article.analysis.confidence ?? 0) * 100);
       analysisHeader.textContent = [
         article.analysis.stance,
+        article.analysis.sentiment,
+        `Recommendation: ${article.analysis.recommendation || "unclear"}`,
         `${confidence}% confidence`,
         article.analysis.model,
       ].filter(Boolean).join(" - ");
@@ -281,7 +283,32 @@ function renderArticleRows(articles) {
         evidence.append(evidenceItem);
       });
 
-      analysis.append(analysisHeader, summary, tickers, evidence);
+      const actionable = document.createElement("div");
+      actionable.className = "article-actionable";
+      const priceTargets = article.analysis.price_targets || [];
+      const actionableData = article.analysis.actionable_data || [];
+      if (priceTargets.length || actionableData.length) {
+        actionable.append(actionableLine("Price targets", priceTargets.map(formatPriceTarget).join("; ") || "-"));
+        actionableData.forEach((item) => {
+          actionable.append(
+            actionableLine(
+              item.ticker || "Ticker",
+              [
+                item.recommendation ? `Recommendation: ${item.recommendation}` : null,
+                item.sentiment ? `Sentiment: ${item.sentiment}` : null,
+                item.timeframe ? `Timeframe: ${item.timeframe}` : null,
+                (item.catalysts || []).length ? `Catalysts: ${(item.catalysts || []).join(", ")}` : null,
+                (item.risks || []).length ? `Risks: ${(item.risks || []).join(", ")}` : null,
+                (item.financial_details || []).length
+                  ? `Details: ${(item.financial_details || []).join(", ")}`
+                  : null,
+              ].filter(Boolean).join(" | "),
+            ),
+          );
+        });
+      }
+
+      analysis.append(analysisHeader, summary, tickers, actionable, evidence);
     } else {
       analysis.textContent = "Analysis: pending";
     }
@@ -289,6 +316,22 @@ function renderArticleRows(articles) {
     row.append(title, meta, link, contentStatus, analysis);
     list.append(row);
   });
+}
+
+function actionableLine(label, value) {
+  const line = document.createElement("div");
+  line.className = "article-actionable-line";
+  const strong = document.createElement("strong");
+  strong.textContent = `${label}: `;
+  line.append(strong, value);
+  return line;
+}
+
+function formatPriceTarget(target) {
+  const price = target.target_price === null || target.target_price === undefined
+    ? "not specified"
+    : `${target.currency || ""} ${target.target_price}`.trim();
+  return `${target.ticker || "Ticker"} ${price} ${target.timeframe || ""}`.trim();
 }
 
 function renderRunDetail(payload) {

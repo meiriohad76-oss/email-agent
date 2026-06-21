@@ -27,9 +27,32 @@ def test_openai_article_analyzer_requests_strict_structured_output():
             {
                 "summary": "Margins improved after a stronger guide.",
                 "stance": "buy_watch",
+                "sentiment": "bullish",
+                "recommendation": "buy",
                 "confidence": 0.82,
                 "supporting_evidence": ["Raised FY guide", "Gross margin expanded"],
                 "mentioned_tickers": ["NVDA"],
+                "price_targets": [
+                    {
+                        "ticker": "NVDA",
+                        "target_price": 150.0,
+                        "currency": "USD",
+                        "timeframe": "12 months",
+                        "source_text": "$150 price target",
+                    }
+                ],
+                "actionable_data": [
+                    {
+                        "ticker": "NVDA",
+                        "sentiment": "bullish",
+                        "recommendation": "buy",
+                        "timeframe": "12 months",
+                        "catalysts": ["Raised guidance"],
+                        "risks": ["Gross margin compression"],
+                        "financial_details": ["Gross margin expanded"],
+                        "evidence": ["Raised FY guide", "Gross margin expanded"],
+                    }
+                ],
             }
         )
     )
@@ -56,9 +79,23 @@ def test_openai_article_analyzer_requests_strict_structured_output():
     assert result.model == "gpt-summary"
     assert result.summary == "Margins improved after a stronger guide."
     assert result.stance == "buy_watch"
+    assert result.sentiment == "bullish"
+    assert result.recommendation == "buy"
     assert result.confidence == 0.82
     assert result.supporting_evidence == ["Raised FY guide", "Gross margin expanded"]
     assert result.mentioned_tickers == ["NVDA"]
+    assert result.price_targets == [
+        {
+            "ticker": "NVDA",
+            "target_price": 150.0,
+            "currency": "USD",
+            "timeframe": "12 months",
+            "source_text": "$150 price target",
+        }
+    ]
+    assert result.actionable_data[0]["recommendation"] == "buy"
+    assert "price_targets" in call["text"]["format"]["schema"]["required"]
+    assert "actionable_data" in call["text"]["format"]["schema"]["required"]
 
 
 def test_openai_article_analyzer_rejects_high_confidence_without_two_evidence_items():
@@ -67,9 +104,13 @@ def test_openai_article_analyzer_rejects_high_confidence_without_two_evidence_it
             {
                 "summary": "A bullish read.",
                 "stance": "buy_watch",
+                "sentiment": "bullish",
+                "recommendation": "buy",
                 "confidence": 0.81,
                 "supporting_evidence": ["Raised guide"],
                 "mentioned_tickers": ["NVDA"],
+                "price_targets": [],
+                "actionable_data": [],
             }
         )
     )
@@ -92,9 +133,24 @@ def test_openai_article_analyzer_uses_default_model_when_input_is_blank():
             {
                 "summary": "A neutral read.",
                 "stance": "hold",
+                "sentiment": "neutral",
+                "recommendation": "hold",
                 "confidence": 0.62,
                 "supporting_evidence": ["Revenue guide was maintained"],
                 "mentioned_tickers": ["NVDA"],
+                "price_targets": [],
+                "actionable_data": [
+                    {
+                        "ticker": "NVDA",
+                        "sentiment": "neutral",
+                        "recommendation": "hold",
+                        "timeframe": "unclear",
+                        "catalysts": [],
+                        "risks": [],
+                        "financial_details": ["Revenue guide was maintained"],
+                        "evidence": ["Revenue guide was maintained"],
+                    }
+                ],
             }
         )
     )
