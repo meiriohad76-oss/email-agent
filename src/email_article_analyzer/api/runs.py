@@ -1,6 +1,6 @@
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, field_validator
 
 from email_article_analyzer.api.status import missing_essential_providers
@@ -8,6 +8,7 @@ from email_article_analyzer.api.status import provider_status
 from email_article_analyzer.model_defaults import DEFAULT_EXTRACTION_MODEL
 from email_article_analyzer.model_defaults import DEFAULT_SUMMARY_MODEL
 from email_article_analyzer.model_defaults import normalize_model_name
+from email_article_analyzer.report_export import build_run_markdown_report
 from email_article_analyzer.repositories import RunRepository
 
 router = APIRouter(prefix="/api/runs", tags=["runs"])
@@ -95,6 +96,28 @@ def list_runs(request: Request) -> dict[str, Any]:
             for run in repository.list_recent_runs()
         ]
     }
+
+
+@router.get("/{run_id}/report.md")
+def export_run_report(run_id: int, request: Request) -> Response:
+    repository = RunRepository(request.app.state.database_path)
+    try:
+        run = repository.get_run(run_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Run not found") from exc
+    markdown = build_run_markdown_report(
+        run=run,
+        counts=repository.discovery_counts(run_id),
+        events=repository.list_events(run_id),
+        articles=repository.list_discovered_articles(run_id),
+    )
+    return Response(
+        content=markdown,
+        media_type="text/markdown; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="email-article-run-{run_id}-report.md"',
+        },
+    )
 
 
 @router.get("/{run_id}")

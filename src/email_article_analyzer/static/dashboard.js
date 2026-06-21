@@ -133,6 +133,15 @@ async function stopCurrentRun() {
   }
 }
 
+function exportRunReport() {
+  const runId = document.getElementById("run-id").value;
+  if (!runId) {
+    setRunDetailStatus("Enter or load a run before exporting a report.", true);
+    return;
+  }
+  window.location.href = `/api/runs/${runId}/report.md`;
+}
+
 function setRunDetailStatus(message, isError = false) {
   const status = document.getElementById("run-detail-status");
   status.textContent = message;
@@ -461,6 +470,10 @@ document
 document
   .getElementById("stop-run-button")
   .addEventListener("click", stopCurrentRun);
+
+document
+  .getElementById("export-report-button")
+  .addEventListener("click", exportRunReport);
 
 document.getElementById("run-start-form").addEventListener("submit", async (event) => {
   event.preventDefault();
