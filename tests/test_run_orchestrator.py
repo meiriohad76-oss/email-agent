@@ -428,3 +428,57 @@ def test_run_orchestrator_records_candidate_failure_and_completes_run(tmp_path):
     ]
     assert events[3]["severity"] == "warning"
     assert events[3]["message"] == "Candidate processing failed; continuing run"
+
+
+def test_run_orchestrator_stops_before_next_candidate_when_stop_requested(tmp_path):
+    db_path = str(tmp_path / "app.db")
+    initialize_database(db_path)
+    source = next(source for source in TRUSTED_SOURCES if source.source_key == "seeking_alpha")
+    candidates = [
+        GmailCandidate(
+            message=GmailMessage(
+                message_id=f"msg-{index}",
+                thread_id=f"thread-{index}",
+                sender="alerts@seekingalpha.com",
+                subject=f"Story {index}",
+                labels=["UNREAD"],
+                html_body="<h1>Story</h1>",
+                text_body="",
+            ),
+            source=source,
+            headline_link=ExtractedLink(
+                url=f"https://seekingalpha.com/article/{index}",
+                detection_method="headline_anchor",
+                detection_confidence=0.9,
+            ),
+        )
+        for index in (1, 2)
+    ]
+    analyzer = FakeArticleAnalyzer()
+    run_repo = RunRepository(db_path)
+    orchestrator = RunOrchestrator(
+        run_repository=run_repo,
+        gmail_repository=GmailDiscoveryRepository(db_path),
+        discovery_service=FakeDiscoveryService(candidates),
+        article_analyzer=analyzer,
+        stop_requested=lambda: len(analyzer.calls) >= 1,
+    )
+
+    result = orchestrator.start_discovery_run(
+        extraction_model="gpt-extract",
+        summary_model="gpt-summary",
+    )
+
+    assert result.status == "stopped"
+    assert result.candidate_count == 1
+    assert len(analyzer.calls) == 1
+    assert run_repo.get_run(result.run_id)["status"] == "stopped"
+    events = run_repo.list_events(result.run_id)
+    assert [event["event_type"] for event in events] == [
+        "run_started",
+        "gmail_search_started",
+        "headline_link_detected",
+        "article_analyzed",
+        "run_stop_requested",
+        "run_stopped",
+    ]

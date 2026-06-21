@@ -44,6 +44,7 @@ def create_run(payload: CreateRunRequest, request: Request) -> dict[str, Any]:
             status_code=503,
             detail="Run orchestrator is not configured",
         )
+    request.app.state.run_control.clear_stop()
     try:
         extraction_model = normalize_model_name(
             payload.extraction_model,
@@ -70,6 +71,15 @@ def create_run(payload: CreateRunRequest, request: Request) -> dict[str, Any]:
         "status": result.status,
         "candidate_count": result.candidate_count,
         "needed_source_logins": result.needed_source_logins,
+    }
+
+
+@router.post("/stop-current")
+def stop_current_run(request: Request) -> dict[str, str]:
+    request.app.state.run_control.request_stop()
+    return {
+        "status": "stop_requested",
+        "message": "Current run will stop after the active article finishes.",
     }
 
 

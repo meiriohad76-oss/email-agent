@@ -119,6 +119,20 @@ async function confirmSourceLogins() {
   }
 }
 
+async function stopCurrentRun() {
+  writeResult("run-start-result", "Requesting stop...");
+  try {
+    const payload = await fetchJson("/api/runs/stop-current", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    writeResult("run-start-result", payload);
+    await refreshRecentRuns();
+  } catch (error) {
+    writeResult("run-start-result", error.message);
+  }
+}
+
 function setRunDetailStatus(message, isError = false) {
   const status = document.getElementById("run-detail-status");
   status.textContent = message;
@@ -443,6 +457,10 @@ document
 document
   .getElementById("source-login-confirm-button")
   .addEventListener("click", confirmSourceLogins);
+
+document
+  .getElementById("stop-run-button")
+  .addEventListener("click", stopCurrentRun);
 
 document.getElementById("run-start-form").addEventListener("submit", async (event) => {
   event.preventDefault();

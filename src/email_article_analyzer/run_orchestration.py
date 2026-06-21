@@ -28,12 +28,14 @@ class RunOrchestrator:
         discovery_service,
         article_analyzer: ArticleAnalyzer | None = None,
         article_content_fetcher: ArticleContentFetcherProtocol | None = None,
+        stop_requested=None,
     ):
         self.run_repository = run_repository
         self.gmail_repository = gmail_repository
         self.discovery_service = discovery_service
         self.article_analyzer = article_analyzer
         self.article_content_fetcher = article_content_fetcher
+        self.stop_requested = stop_requested or (lambda: False)
 
     def start_discovery_run(
         self,
@@ -70,9 +72,26 @@ class RunOrchestrator:
         )
 
         candidates = self.discovery_service.discover_candidates()
+        processed_count = 0
+        stopped = False
         for candidate in candidates:
+            if self.stop_requested():
+                stopped = True
+                self.run_repository.add_event(
+                    run_id=run_id,
+                    event_type="run_stop_requested",
+                    stage="control",
+                    message="Stop requested; no more candidates will be started",
+                    severity="warning",
+                    details={
+                        "processed_count": processed_count,
+                        "candidate_count": len(candidates),
+                    },
+                )
+                break
             try:
                 self._persist_candidate(run_id, candidate, summary_model)
+                processed_count += 1
             except Exception as exc:
                 self.run_repository.add_event(
                     run_id=run_id,
@@ -88,19 +107,24 @@ class RunOrchestrator:
                         "failure_reason": str(exc),
                     },
                 )
+                processed_count += 1
 
-        self.run_repository.complete_run(run_id)
+        final_status = "stopped" if stopped else "completed"
+        self.run_repository.complete_run(run_id, status=final_status)
         self.run_repository.add_event(
             run_id=run_id,
-            event_type="run_completed",
+            event_type="run_stopped" if stopped else "run_completed",
             stage="completion",
-            message="Run completed",
-            details={"candidate_count": len(candidates)},
+            message="Run stopped" if stopped else "Run completed",
+            details={
+                "candidate_count": len(candidates),
+                "processed_count": processed_count,
+            },
         )
         return RunResult(
             run_id=run_id,
-            status="completed",
-            candidate_count=len(candidates),
+            status=final_status,
+            candidate_count=processed_count,
             needed_source_logins=sorted(
                 {candidate.source.source_key for candidate in candidates}
             ),

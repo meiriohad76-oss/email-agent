@@ -14,6 +14,7 @@ def test_dashboard_route_serves_operational_shell(tmp_path):
     assert "watchlist-upload" in response.text
     assert "run-start-form" in response.text
     assert "start-run-button" in response.text
+    assert "stop-run-button" in response.text
     assert "run-readiness-message" in response.text
     assert "provider-status-list" in response.text
     assert "source-login-open-button" in response.text
@@ -54,6 +55,8 @@ def test_dashboard_assets_are_served(tmp_path):
     assert 'String(form.get("summary_model") || "").trim()' in js_response.text
     assert "window.setInterval(refreshRecentRuns, 5000)" in js_response.text
     assert "window.clearInterval(progressRefresh)" in js_response.text
+    assert "stopCurrentRun" in js_response.text
+    assert "/api/runs/stop-current" in js_response.text
     assert "email fallback" in js_response.text
     assert "payload.detail" in js_response.text
     assert "renderArticleRows" in js_response.text

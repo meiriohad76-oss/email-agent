@@ -31,6 +31,7 @@ def create_run_orchestrator(
     service_builder: Callable | None = None,
     openai_client_factory: Callable | None = None,
     source_browser_session=None,
+    run_control=None,
 ) -> RunOrchestrator | None:
     if not Path(config.gmail_token_path).exists():
         return None
@@ -70,6 +71,7 @@ def create_run_orchestrator(
         discovery_service=discovery_service,
         article_analyzer=article_analyzer,
         article_content_fetcher=article_content_fetcher,
+        stop_requested=run_control.is_stop_requested if run_control is not None else None,
     )
 
 

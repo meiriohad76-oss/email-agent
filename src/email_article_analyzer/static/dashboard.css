@@ -53,6 +53,17 @@ button.secondary-button:hover {
   color: white;
 }
 
+button.danger-button {
+  background: #ffffff;
+  border: 1px solid #f2b8b5;
+  color: var(--danger);
+}
+
+button.danger-button:hover {
+  background: var(--danger);
+  color: white;
+}
+
 button:disabled {
   background: #b8c3c7;
   cursor: not-allowed;

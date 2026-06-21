@@ -142,6 +142,20 @@ def test_create_run_endpoint_returns_bad_gateway_when_orchestrator_fails(tmp_pat
     }
 
 
+def test_stop_current_run_endpoint_requests_cooperative_stop(tmp_path):
+    app = create_app(database_path=str(tmp_path / "app.db"))
+    client = TestClient(app)
+
+    response = client.post("/api/runs/stop-current")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "stop_requested",
+        "message": "Current run will stop after the active article finishes.",
+    }
+    assert app.state.run_control.is_stop_requested() is True
+
+
 def test_get_run_endpoint_returns_status_counts_and_events(tmp_path):
     db_path = str(tmp_path / "app.db")
     initialize_database(db_path)
