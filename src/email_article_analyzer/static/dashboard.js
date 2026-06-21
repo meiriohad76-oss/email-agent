@@ -90,6 +90,20 @@ async function refreshProviderStatus() {
   }
 }
 
+async function openSourceLoginBrowser() {
+  writeResult("run-start-result", "Opening source login browser...");
+  try {
+    const payload = await fetchJson("/api/source-logins/open", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ source: "seeking_alpha" }),
+    });
+    writeResult("run-start-result", payload);
+  } catch (error) {
+    writeResult("run-start-result", error.message);
+  }
+}
+
 async function confirmSourceLogins() {
   writeResult("run-start-result", "Confirming source logins...");
   try {
@@ -365,6 +379,10 @@ document.getElementById("watchlist-upload").addEventListener("submit", async (ev
     writeResult("watchlist-result", error.message);
   }
 });
+
+document
+  .getElementById("source-login-open-button")
+  .addEventListener("click", openSourceLoginBrowser);
 
 document
   .getElementById("source-login-confirm-button")

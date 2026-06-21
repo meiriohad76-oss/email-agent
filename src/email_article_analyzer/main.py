@@ -8,6 +8,7 @@ from email_article_analyzer.api.runs import router as runs_router
 from email_article_analyzer.api.source_logins import router as source_logins_router
 from email_article_analyzer.api.status import router as status_router
 from email_article_analyzer.api.watchlist import router as watchlist_router
+from email_article_analyzer.article_content import PersistentBrowserSession
 from email_article_analyzer.config import AppConfig
 from email_article_analyzer.db import initialize_database
 from email_article_analyzer.orchestrator_factory import create_run_orchestrator
@@ -21,11 +22,13 @@ def create_app(database_path: str | None = None, run_orchestrator=None) -> FastA
     app = FastAPI(title="Email Article Analyzer")
     app.state.config = config
     app.state.database_path = resolved_database_path
+    app.state.source_browser_session = PersistentBrowserSession()
     app.state.run_orchestrator = run_orchestrator
     if app.state.run_orchestrator is None:
         app.state.run_orchestrator = create_run_orchestrator(
             config,
             resolved_database_path,
+            source_browser_session=app.state.source_browser_session,
         )
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     app.include_router(dashboard_router)

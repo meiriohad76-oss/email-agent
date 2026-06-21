@@ -30,6 +30,7 @@ def create_run_orchestrator(
     credentials_cls=Credentials,
     service_builder: Callable | None = None,
     openai_client_factory: Callable | None = None,
+    source_browser_session=None,
 ) -> RunOrchestrator | None:
     if not Path(config.gmail_token_path).exists():
         return None
@@ -61,6 +62,7 @@ def create_run_orchestrator(
         )
         article_content_fetcher = _create_article_content_fetcher(
             tls_verify=config.tls_verify,
+            source_browser_session=source_browser_session,
         )
     return RunOrchestrator(
         run_repository=RunRepository(database_path),
@@ -92,12 +94,15 @@ def _create_article_content_fetcher(
     http_client_cls=httpx.Client,
     ca_bundle_path: str | None = None,
     tls_verify: bool = True,
+    source_browser_session=None,
 ) -> ArticleContentFetcher:
     verify = ca_bundle_path or _default_ca_bundle_path()
     http_fetcher = ArticleContentFetcher(
         http_client=http_client_cls(verify=verify if tls_verify else False)
     )
-    browser_fetcher = BrowserArticleContentFetcher()
+    browser_fetcher = BrowserArticleContentFetcher(
+        browser_session=source_browser_session,
+    )
     return HybridArticleContentFetcher(
         http_fetcher=http_fetcher,
         browser_fetcher=browser_fetcher,

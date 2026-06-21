@@ -98,15 +98,24 @@ class BrowserArticleContentFetcher:
         self,
         profile_path: str | Path = "data/browser-profile",
         context_factory=None,
+        browser_session=None,
         channel: str = "chrome",
         navigation_timeout_ms: int = 60000,
     ):
         self.profile_path = str(profile_path)
         self.context_factory = context_factory or self._playwright_context_factory
+        self.browser_session = browser_session
         self.channel = channel
         self.navigation_timeout_ms = navigation_timeout_ms
 
     def fetch(self, url: str) -> ArticleContent:
+        if self.browser_session is not None:
+            page = self.browser_session.page_for_url(url)
+            try:
+                return _content_from_page(page, None)
+            finally:
+                self.browser_session.close_page(page)
+
         context = self.context_factory(
             user_data_dir=self.profile_path,
             headless=False,
@@ -123,18 +132,7 @@ class BrowserArticleContentFetcher:
                 page.wait_for_load_state("networkidle", timeout=10000)
             except Exception:
                 pass
-            text = _read_visible_page_text(page)
-            response_status = getattr(
-                response,
-                "status",
-                getattr(response, "status_code", 0),
-            )
-            return ArticleContent(
-                final_url=str(page.url),
-                http_status=int(response_status or 0),
-                title=page.title() or None,
-                extracted_text=text,
-            )
+            return _content_from_page(page, response)
         finally:
             context.close()
 
@@ -152,6 +150,78 @@ class BrowserArticleContentFetcher:
             playwright.stop()
             raise
         return _PlaywrightContextHandle(context=context, playwright=playwright)
+
+
+class PersistentBrowserSession:
+    def __init__(
+        self,
+        profile_path: str | Path = "data/browser-profile",
+        channel: str = "chrome",
+        context_factory=None,
+        navigation_timeout_ms: int = 60000,
+    ):
+        self.profile_path = str(profile_path)
+        self.channel = channel
+        self.context_factory = context_factory
+        self.navigation_timeout_ms = navigation_timeout_ms
+        self._playwright = None
+        self._context = None
+
+    def open_login_page(self, url: str):
+        return self.page_for_url(url)
+
+    def page_for_url(self, url: str):
+        page = self._ensure_context().new_page()
+        page.goto(
+            url,
+            wait_until="domcontentloaded",
+            timeout=self.navigation_timeout_ms,
+        )
+        return page
+
+    def close_page(self, page) -> None:
+        try:
+            page.close()
+        except Exception:
+            pass
+
+    def close(self) -> None:
+        if self._context is not None:
+            try:
+                self._context.close()
+            finally:
+                self._context = None
+        if self._playwright is not None:
+            try:
+                self._playwright.stop()
+            finally:
+                self._playwright = None
+
+    def _ensure_context(self):
+        if self._context is not None:
+            return self._context
+        if self.context_factory is not None:
+            self._context = self.context_factory(
+                user_data_dir=self.profile_path,
+                headless=False,
+                channel=self.channel,
+            )
+            return self._context
+
+        from playwright.sync_api import sync_playwright
+
+        self._playwright = sync_playwright().start()
+        try:
+            self._context = self._playwright.chromium.launch_persistent_context(
+                user_data_dir=self.profile_path,
+                headless=False,
+                channel=self.channel,
+            )
+        except Exception:
+            self._playwright.stop()
+            self._playwright = None
+            raise
+        return self._context
 
 
 class _PlaywrightContextHandle:
@@ -196,3 +266,18 @@ def _read_visible_page_text(page) -> str:
         if text.strip():
             return text.strip()
     return ""
+
+
+def _content_from_page(page, response) -> ArticleContent:
+    text = _read_visible_page_text(page)
+    response_status = getattr(
+        response,
+        "status",
+        getattr(response, "status_code", 0),
+    )
+    return ArticleContent(
+        final_url=str(page.url),
+        http_status=int(response_status or 0),
+        title=page.title() or None,
+        extracted_text=text,
+    )

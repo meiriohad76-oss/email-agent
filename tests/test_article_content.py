@@ -93,6 +93,23 @@ class FakeBrowserContext:
         self.closed = True
 
 
+class FakeBrowserSession:
+    def __init__(self):
+        self.context = FakeBrowserContext()
+        self.opened_login_urls = []
+
+    def page_for_url(self, url):
+        self.context.page.goto(url, wait_until="domcontentloaded", timeout=60000)
+        return self.context.page
+
+    def close_page(self, page):
+        self.context.closed = True
+
+    def open_login_page(self, url):
+        self.opened_login_urls.append(url)
+        return self.context.page
+
+
 def test_browser_article_content_fetcher_uses_visible_persistent_chrome_context(tmp_path):
     calls = {}
     context = FakeBrowserContext()
@@ -121,6 +138,17 @@ def test_browser_article_content_fetcher_uses_visible_persistent_chrome_context(
     assert content.final_url == "https://seekingalpha.com/article/1"
     assert content.http_status == 200
     assert content.title == "Seeking Alpha Story"
+    assert content.extracted_text == "Authenticated article text"
+
+
+def test_browser_article_content_fetcher_can_reuse_shared_browser_session():
+    session = FakeBrowserSession()
+    fetcher = BrowserArticleContentFetcher(browser_session=session)
+
+    content = fetcher.fetch("https://seekingalpha.com/article/1")
+
+    assert ("goto", "https://seekingalpha.com/article/1", "domcontentloaded", 60000) in session.context.page.calls
+    assert session.context.closed is True
     assert content.extracted_text == "Authenticated article text"
 
 

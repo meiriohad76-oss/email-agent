@@ -16,6 +16,7 @@ def test_dashboard_route_serves_operational_shell(tmp_path):
     assert "start-run-button" in response.text
     assert "run-readiness-message" in response.text
     assert "provider-status-list" in response.text
+    assert "source-login-open-button" in response.text
     assert "source-login-confirm-button" in response.text
     assert "run-lookup-form" in response.text
     assert "run-detail-summary" in response.text
@@ -45,6 +46,7 @@ def test_dashboard_assets_are_served(tmp_path):
     assert "renderRunDetail" in js_response.text
     assert "formatApiError" in js_response.text
     assert "formatContentStatus" in js_response.text
+    assert "openSourceLoginBrowser" in js_response.text
     assert "confirmSourceLogins" in js_response.text
     assert "email fallback" in js_response.text
     assert "payload.detail" in js_response.text
