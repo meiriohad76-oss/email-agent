@@ -140,7 +140,7 @@ class FailingArticleAnalyzer:
         raise RuntimeError("OpenAI request failed")
 
 
-def test_run_orchestrator_persists_candidates_events_and_needed_logins(tmp_path):
+def test_run_orchestrator_persists_candidates_without_login_warning_when_no_fetch_failed(tmp_path):
     db_path = str(tmp_path / "app.db")
     initialize_database(db_path)
     source = next(source for source in TRUSTED_SOURCES if source.source_key == "seeking_alpha")
@@ -178,7 +178,7 @@ def test_run_orchestrator_persists_candidates_events_and_needed_logins(tmp_path)
     assert discovery_service.called is True
     assert result.status == "completed"
     assert result.candidate_count == 1
-    assert result.needed_source_logins == ["seeking_alpha"]
+    assert result.needed_source_logins == []
     assert run_repo.discovery_counts(result.run_id) == {
         "gmail_messages": 1,
         "article_links": 1,
@@ -379,6 +379,7 @@ def test_run_orchestrator_records_failed_content_fetch_and_falls_back_to_headlin
     warning = events[3]
     assert warning["severity"] == "warning"
     assert warning["message"] == "Article content fetch failed; falling back to email-body analysis"
+    assert result.needed_source_logins == ["seeking_alpha"]
 
 
 def test_run_orchestrator_records_candidate_failure_and_completes_run(tmp_path):

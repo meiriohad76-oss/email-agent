@@ -426,6 +426,16 @@ async function refreshRecentRuns() {
   }
 }
 
+async function loadRunDetail(runId, successMessage = null) {
+  document.getElementById("run-id").value = runId;
+  setRunDetailStatus("Loading run...");
+  const payload = await fetchJson(`/api/runs/${runId}`);
+  renderRunDetail(payload);
+  if (successMessage) {
+    setRunDetailStatus(successMessage);
+  }
+}
+
 async function checkHealth() {
   const pill = document.getElementById("health-status");
   try {
@@ -497,6 +507,9 @@ document.getElementById("run-start-form").addEventListener("submit", async (even
       body: JSON.stringify(body),
     });
     writeResult("run-start-result", payload);
+    if (payload.run_id) {
+      await loadRunDetail(payload.run_id, `Run completed. Loaded details for run #${payload.run_id}.`);
+    }
     await refreshRecentRuns();
   } catch (error) {
     writeResult("run-start-result", error.message);
@@ -509,10 +522,8 @@ document.getElementById("run-start-form").addEventListener("submit", async (even
 document.getElementById("run-lookup-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const runId = document.getElementById("run-id").value;
-  setRunDetailStatus("Loading run...");
   try {
-    const payload = await fetchJson(`/api/runs/${runId}`);
-    renderRunDetail(payload);
+    await loadRunDetail(runId);
   } catch (error) {
     setRunDetailStatus(error.message, true);
   }
@@ -524,11 +535,8 @@ document.getElementById("recent-runs-list").addEventListener("click", async (eve
     return;
   }
   const runId = row.dataset.runId;
-  document.getElementById("run-id").value = runId;
-  setRunDetailStatus("Loading run...");
   try {
-    const payload = await fetchJson(`/api/runs/${runId}`);
-    renderRunDetail(payload);
+    await loadRunDetail(runId);
   } catch (error) {
     setRunDetailStatus(error.message, true);
   }

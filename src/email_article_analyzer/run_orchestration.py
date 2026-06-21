@@ -74,6 +74,7 @@ class RunOrchestrator:
         candidates = self.discovery_service.discover_candidates()
         processed_count = 0
         stopped = False
+        needed_source_logins: set[str] = set()
         for candidate in candidates:
             if self.stop_requested():
                 stopped = True
@@ -90,7 +91,8 @@ class RunOrchestrator:
                 )
                 break
             try:
-                self._persist_candidate(run_id, candidate, summary_model)
+                if self._persist_candidate(run_id, candidate, summary_model):
+                    needed_source_logins.add(candidate.source.source_key)
                 processed_count += 1
             except Exception as exc:
                 self.run_repository.add_event(
@@ -125,9 +127,7 @@ class RunOrchestrator:
             run_id=run_id,
             status=final_status,
             candidate_count=processed_count,
-            needed_source_logins=sorted(
-                {candidate.source.source_key for candidate in candidates}
-            ),
+            needed_source_logins=sorted(needed_source_logins),
         )
 
     def _persist_candidate(
@@ -135,7 +135,8 @@ class RunOrchestrator:
         run_id: int,
         candidate: GmailCandidate,
         summary_model: str,
-    ) -> None:
+    ) -> bool:
+        needs_source_login = False
         message = candidate.message
         message_row_id = self.gmail_repository.save_message(
             run_id=run_id,
@@ -170,7 +171,7 @@ class RunOrchestrator:
             },
         )
         if self.article_analyzer is None:
-            return
+            return needs_source_login
 
         article_title = None
         article_text = None
@@ -178,6 +179,7 @@ class RunOrchestrator:
             try:
                 content = self.article_content_fetcher.fetch(candidate.headline_link.url)
             except Exception as exc:
+                needs_source_login = True
                 failure_reason = str(exc)
                 article_title = message.subject
                 article_text = _email_body_fallback_text(message)
@@ -268,6 +270,7 @@ class RunOrchestrator:
                 "confidence": analysis.confidence,
             },
         )
+        return needs_source_login
 
 
 def _email_body_fallback_text(message) -> str | None:
