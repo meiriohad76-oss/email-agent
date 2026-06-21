@@ -356,8 +356,28 @@ h2 {
 
 .article-tickers {
   color: var(--muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
   font-size: 12px;
   font-weight: 700;
+}
+
+.ticker-chip {
+  border: 1px solid var(--line);
+  color: var(--muted);
+  display: inline-flex;
+  padding: 2px 6px;
+}
+
+.ticker-chip.in-portfolio {
+  border-color: #b7e4c7;
+  color: var(--ok);
+}
+
+.ticker-chip.not-in-portfolio {
+  border-color: #fed7aa;
+  color: #7c2d12;
 }
 
 .article-evidence {

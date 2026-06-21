@@ -2,6 +2,7 @@ import json
 from typing import Any
 
 from email_article_analyzer.db import connect
+from email_article_analyzer.watchlist import normalize_ticker
 
 
 class RunRepository:
@@ -114,6 +115,10 @@ class RunRepository:
 
     def list_discovered_articles(self, run_id: int) -> list[dict[str, Any]]:
         with connect(self.database_path) as conn:
+            active_tickers = {
+                row["normalized_ticker"]
+                for row in conn.execute("SELECT normalized_ticker FROM watchlist_items")
+            }
             rows = conn.execute(
                 """
                 SELECT
@@ -158,9 +163,16 @@ class RunRepository:
                 """,
                 (run_id,),
             ).fetchall()
-        return [self._article_detail_from_row(dict(row)) for row in rows]
+        return [
+            self._article_detail_from_row(dict(row), active_tickers=active_tickers)
+            for row in rows
+        ]
 
-    def _article_detail_from_row(self, row: dict[str, Any]) -> dict[str, Any]:
+    def _article_detail_from_row(
+        self,
+        row: dict[str, Any],
+        active_tickers: set[str] | None = None,
+    ) -> dict[str, Any]:
         article = {
             "article_link_id": row["article_link_id"],
             "gmail_message_id": row["gmail_message_id"],
@@ -182,6 +194,7 @@ class RunRepository:
                 "failure_reason": row["content_failure_reason"],
             }
         if row["analysis_provider"] is not None:
+            mentioned_tickers = json.loads(row["mentioned_tickers_json"])
             article["analysis"] = {
                 "provider": row["analysis_provider"],
                 "model": row["analysis_model"],
@@ -189,7 +202,14 @@ class RunRepository:
                 "stance": row["analysis_stance"],
                 "confidence": row["analysis_confidence"],
                 "supporting_evidence": json.loads(row["supporting_evidence_json"]),
-                "mentioned_tickers": json.loads(row["mentioned_tickers_json"]),
+                "mentioned_tickers": mentioned_tickers,
+                "mentioned_ticker_details": [
+                    {
+                        "ticker": ticker,
+                        "in_portfolio": normalize_ticker(str(ticker)) in (active_tickers or set()),
+                    }
+                    for ticker in mentioned_tickers
+                ],
             }
         return article
 

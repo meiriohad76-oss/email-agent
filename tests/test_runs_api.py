@@ -224,6 +224,9 @@ def test_get_run_endpoint_returns_status_counts_and_events(tmp_path):
                 "confidence": 0.82,
                 "supporting_evidence": ["Raised guide", "Margin expansion"],
                 "mentioned_tickers": ["NVDA"],
+                "mentioned_ticker_details": [
+                    {"ticker": "NVDA", "in_portfolio": False},
+                ],
             },
         }
     ]

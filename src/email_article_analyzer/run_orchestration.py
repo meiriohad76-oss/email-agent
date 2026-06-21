@@ -71,7 +71,23 @@ class RunOrchestrator:
 
         candidates = self.discovery_service.discover_candidates()
         for candidate in candidates:
-            self._persist_candidate(run_id, candidate, summary_model)
+            try:
+                self._persist_candidate(run_id, candidate, summary_model)
+            except Exception as exc:
+                self.run_repository.add_event(
+                    run_id=run_id,
+                    event_type="candidate_processing_failed",
+                    stage="article_analysis",
+                    message="Candidate processing failed; continuing run",
+                    entity_type="gmail_message",
+                    entity_id=candidate.message.message_id,
+                    severity="warning",
+                    details={
+                        "source_key": candidate.source.source_key,
+                        "url": candidate.headline_link.url,
+                        "failure_reason": str(exc),
+                    },
+                )
 
         self.run_repository.complete_run(run_id)
         self.run_repository.add_event(

@@ -258,7 +258,20 @@ function renderArticleRows(articles) {
 
       const tickers = document.createElement("div");
       tickers.className = "article-tickers";
-      tickers.textContent = `Tickers: ${(article.analysis.mentioned_tickers || []).join(", ") || "-"}`;
+      tickers.append("Tickers: ");
+      const tickerDetails = article.analysis.mentioned_ticker_details || [];
+      if (tickerDetails.length) {
+        tickerDetails.forEach((tickerDetail) => {
+          const chip = document.createElement("span");
+          chip.className = `ticker-chip ${tickerDetail.in_portfolio ? "in-portfolio" : "not-in-portfolio"}`;
+          chip.textContent = tickerDetail.in_portfolio
+            ? `${tickerDetail.ticker} - portfolio`
+            : `${tickerDetail.ticker} - not portfolio`;
+          tickers.append(chip);
+        });
+      } else {
+        tickers.append((article.analysis.mentioned_tickers || []).join(", ") || "-");
+      }
 
       const evidence = document.createElement("ul");
       evidence.className = "article-evidence";

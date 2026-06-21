@@ -79,6 +79,19 @@ class FailingArticleContentFetcher:
         raise RuntimeError("HTTP 403 Forbidden")
 
 
+class FailingArticleAnalyzer:
+    def analyze_article(
+        self,
+        url,
+        source_key,
+        email_subject,
+        article_title,
+        article_text,
+        model,
+    ):
+        raise RuntimeError("OpenAI request failed")
+
+
 def test_run_orchestrator_persists_candidates_events_and_needed_logins(tmp_path):
     db_path = str(tmp_path / "app.db")
     initialize_database(db_path)
@@ -318,3 +331,52 @@ def test_run_orchestrator_records_failed_content_fetch_and_falls_back_to_headlin
     warning = events[3]
     assert warning["severity"] == "warning"
     assert warning["message"] == "Article content fetch failed; falling back to email-body analysis"
+
+
+def test_run_orchestrator_records_candidate_failure_and_completes_run(tmp_path):
+    db_path = str(tmp_path / "app.db")
+    initialize_database(db_path)
+    source = next(source for source in TRUSTED_SOURCES if source.source_key == "seeking_alpha")
+    candidate = GmailCandidate(
+        message=GmailMessage(
+            message_id="msg-1",
+            thread_id="thread-1",
+            sender="alerts@seekingalpha.com",
+            subject="Story",
+            labels=["UNREAD"],
+            html_body="<h1>Story</h1>",
+            text_body="",
+        ),
+        source=source,
+        headline_link=ExtractedLink(
+            url="https://seekingalpha.com/article/1",
+            detection_method="headline_anchor",
+            detection_confidence=0.9,
+        ),
+    )
+    run_repo = RunRepository(db_path)
+    orchestrator = RunOrchestrator(
+        run_repository=run_repo,
+        gmail_repository=GmailDiscoveryRepository(db_path),
+        discovery_service=FakeDiscoveryService([candidate]),
+        article_analyzer=FailingArticleAnalyzer(),
+    )
+
+    result = orchestrator.start_discovery_run(
+        extraction_model="gpt-extract",
+        summary_model="gpt-summary",
+    )
+
+    run = run_repo.get_run(result.run_id)
+    assert result.status == "completed"
+    assert run["status"] == "completed"
+    events = run_repo.list_events(result.run_id)
+    assert [event["event_type"] for event in events] == [
+        "run_started",
+        "gmail_search_started",
+        "headline_link_detected",
+        "candidate_processing_failed",
+        "run_completed",
+    ]
+    assert events[3]["severity"] == "warning"
+    assert events[3]["message"] == "Candidate processing failed; continuing run"

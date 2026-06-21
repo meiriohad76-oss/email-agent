@@ -34,6 +34,27 @@ def test_extract_headline_link_falls_back_to_first_article_domain_link():
     assert result.detection_method == "first_valid_link"
 
 
+def test_extract_headline_link_skips_seeking_alpha_portfolio_pages():
+    html = """
+    <h1><a href="https://seekingalpha.com/account/portfolio/all/holdings">Portfolio</a></h1>
+    <a href="https://seekingalpha.com/article/789-first-valid">First Valid</a>
+    """
+
+    result = extract_headline_link(html=html, text="", source=SEEKING_ALPHA)
+
+    assert result.url == "https://seekingalpha.com/article/789-first-valid"
+    assert result.detection_method == "first_valid_link"
+
+
+def test_extract_headline_link_returns_none_for_seeking_alpha_non_article_pages():
+    html = """
+    <h1><a href="https://seekingalpha.com/account/portfolio/all/holdings">Portfolio</a></h1>
+    <a href="https://seekingalpha.com/">Home</a>
+    """
+
+    assert extract_headline_link(html=html, text="", source=SEEKING_ALPHA) is None
+
+
 def test_extract_headline_link_can_read_plain_text_urls():
     text = "Read now: https://seekingalpha.com/article/999-text-story"
 

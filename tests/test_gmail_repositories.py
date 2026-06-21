@@ -1,5 +1,9 @@
 from email_article_analyzer.db import initialize_database
-from email_article_analyzer.repositories import GmailDiscoveryRepository
+from email_article_analyzer.repositories import (
+    GmailDiscoveryRepository,
+    RunRepository,
+    WatchlistRepository,
+)
 
 
 def test_gmail_repository_saves_message_and_article_link(tmp_path):
@@ -123,3 +127,68 @@ def test_gmail_repository_saves_article_content(tmp_path):
     assert content["http_status"] == 200
     assert content["title"] == "Story"
     assert content["text_char_count"] == len("A long article body.")
+
+
+def test_list_discovered_articles_marks_mentioned_tickers_in_active_watchlist(tmp_path):
+    db_path = str(tmp_path / "app.db")
+    initialize_database(db_path)
+    watchlist_repo = WatchlistRepository(db_path)
+    upload_id = watchlist_repo.create_upload(
+        original_filename="portfolio.csv",
+        columns=["Ticker"],
+        sample_rows=[{"Ticker": "AAPL"}],
+        row_count=1,
+    )
+    watchlist_repo.replace_items(
+        upload_id,
+        [
+            {
+                "ticker": "AAPL",
+                "normalized_ticker": "AAPL",
+                "company_name": "Apple",
+                "sector": None,
+                "priority": None,
+                "notes": None,
+                "polygon_reference": "{}",
+            }
+        ],
+    )
+    gmail_repo = GmailDiscoveryRepository(db_path)
+    run_id = RunRepository(db_path).create_run("gpt-extract", "gpt-summary")
+    gmail_row_id = gmail_repo.save_message(
+        run_id=run_id,
+        gmail_message_id="msg-1",
+        thread_id="thread-1",
+        sender="alerts@seekingalpha.com",
+        subject="Story",
+        labels=["UNREAD"],
+        source_key="seeking_alpha",
+        processing_status="discovered",
+    )
+    link_id = gmail_repo.save_article_link(
+        gmail_message_row_id=gmail_row_id,
+        source_key="seeking_alpha",
+        raw_url="https://seekingalpha.com/article/1",
+        normalized_url="https://seekingalpha.com/article/1",
+        detection_method="headline_anchor",
+        detection_confidence=0.9,
+        heuristic_notes=None,
+    )
+    gmail_repo.save_article_analysis(
+        article_link_id=link_id,
+        provider="openai",
+        model="gpt-summary",
+        summary="Apple and Microsoft update.",
+        stance="hold",
+        confidence=0.75,
+        supporting_evidence=["Evidence"],
+        mentioned_tickers=["AAPL", "MSFT"],
+        raw_response={},
+    )
+
+    articles = RunRepository(db_path).list_discovered_articles(run_id=run_id)
+
+    assert articles[0]["analysis"]["mentioned_ticker_details"] == [
+        {"ticker": "AAPL", "in_portfolio": True},
+        {"ticker": "MSFT", "in_portfolio": False},
+    ]
