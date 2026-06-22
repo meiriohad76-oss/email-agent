@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from email_article_analyzer.api.status import provider_status
 from email_article_analyzer.auth import create_gmail_token
 from email_article_analyzer.config import AppConfig
+from email_article_analyzer.repositories import RunRepository
 
 
 def _print_setup_status() -> None:
@@ -26,6 +27,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="email-article-analyzer")
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("setup-status", help="Print first-run setup readiness")
+    subparsers.add_parser(
+        "reset-analyzed-state",
+        help="Clear local article analyses so Gmail messages can be analyzed again",
+    )
     gmail_auth_parser = subparsers.add_parser(
         "gmail-auth",
         help="Run Gmail OAuth and write the token file",
@@ -35,6 +40,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command == "setup-status":
         _print_setup_status()
+        return 0
+    if args.command == "reset-analyzed-state":
+        config = AppConfig.from_env()
+        reset_count = RunRepository(config.database_path).reset_analyzed_state()
+        suffix = "" if reset_count == 1 else "s"
+        print(f"Cleared {reset_count} local article analysis row{suffix}.")
+        print("Gmail labels were not changed.")
         return 0
     if args.command == "gmail-auth":
         config = AppConfig.from_env()

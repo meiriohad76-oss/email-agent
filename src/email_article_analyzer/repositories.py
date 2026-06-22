@@ -128,6 +128,11 @@ class RunRepository:
             ).fetchone()
         return row is not None
 
+    def reset_analyzed_state(self) -> int:
+        with connect(self.database_path) as conn:
+            cursor = conn.execute("DELETE FROM article_analyses")
+            return int(cursor.rowcount)
+
     def list_discovered_articles(self, run_id: int) -> list[dict[str, Any]]:
         with connect(self.database_path) as conn:
             active_tickers = {

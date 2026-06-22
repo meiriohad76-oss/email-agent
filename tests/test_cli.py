@@ -1,4 +1,6 @@
 from email_article_analyzer.cli import main
+from email_article_analyzer.db import initialize_database
+from email_article_analyzer.repositories import GmailDiscoveryRepository, RunRepository
 
 
 class FakeCredentials:
@@ -66,6 +68,52 @@ def test_gmail_auth_cli_creates_token_file(tmp_path, monkeypatch, capsys):
     assert "https://www.googleapis.com/auth/gmail.modify" in FakeFlow.calls[0][2]
     assert FakeFlow.calls[1] == ("run_local_server", 0)
     assert str(token_path) in capsys.readouterr().out
+
+
+def test_reset_analyzed_state_cli_clears_local_skip_state(tmp_path, monkeypatch, capsys):
+    db_path = tmp_path / "app.db"
+    initialize_database(str(db_path))
+    gmail_repo = GmailDiscoveryRepository(str(db_path))
+    run_repo = RunRepository(str(db_path))
+    gmail_row_id = gmail_repo.save_message(
+        run_id=run_repo.create_run("gpt-extract", "gpt-summary"),
+        gmail_message_id="msg-1",
+        thread_id="thread-1",
+        sender="alerts@seekingalpha.com",
+        subject="Story",
+        labels=["UNREAD"],
+        source_key="seeking_alpha",
+        processing_status="discovered",
+    )
+    link_id = gmail_repo.save_article_link(
+        gmail_message_row_id=gmail_row_id,
+        source_key="seeking_alpha",
+        raw_url="https://seekingalpha.com/article/1",
+        normalized_url="https://seekingalpha.com/article/1",
+        detection_method="headline_anchor",
+        detection_confidence=0.9,
+        heuristic_notes=None,
+    )
+    gmail_repo.save_article_analysis(
+        article_link_id=link_id,
+        provider="openai",
+        model="gpt-summary",
+        summary="Done.",
+        stance="hold",
+        confidence=0.8,
+        supporting_evidence=["Evidence"],
+        mentioned_tickers=["AAPL"],
+        raw_response={},
+    )
+    monkeypatch.setenv("APP_DATABASE_PATH", str(db_path))
+
+    exit_code = main(["reset-analyzed-state"])
+
+    assert exit_code == 0
+    assert RunRepository(str(db_path)).has_analyzed_gmail_message("msg-1") is False
+    output = capsys.readouterr().out
+    assert "Cleared 1 local article analysis row" in output
+    assert "Gmail labels were not changed" in output
 
 
 def test_first_run_setup_doc_has_required_steps():
