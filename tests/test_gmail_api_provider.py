@@ -204,6 +204,42 @@ def test_gmail_api_provider_stops_after_max_results():
     assert ("messages.list", "me", "is:unread", "page-2", 1) not in service.calls
 
 
+def test_gmail_api_provider_iterates_messages_lazily():
+    first_message = {
+        "id": "msg-1",
+        "threadId": "thread-1",
+        "labelIds": ["UNREAD"],
+        "payload": {"headers": [], "body": {"data": encoded("First")}, "mimeType": "text/plain"},
+    }
+    second_message = {
+        "id": "msg-2",
+        "threadId": "thread-2",
+        "labelIds": ["UNREAD"],
+        "payload": {"headers": [], "body": {"data": encoded("Second")}, "mimeType": "text/plain"},
+    }
+    service = FakeGmailService(
+        messages={"msg-1": first_message, "msg-2": second_message},
+        pages=[
+            {"messages": [{"id": "msg-1"}], "nextPageToken": "page-2"},
+            {"messages": [{"id": "msg-2"}]},
+        ],
+    )
+    provider = GmailApiProvider(service=service)
+    iterator = provider.iter_unread_messages("is:unread", max_results=2, page_size=1)
+
+    first = next(iterator)
+
+    assert first.message_id == "msg-1"
+    assert ("messages.list", "me", "is:unread", None, 1) in service.calls
+    assert ("messages.get", "me", "msg-1", "full") in service.calls
+    assert ("messages.list", "me", "is:unread", "page-2", 1) not in service.calls
+
+    second = next(iterator)
+
+    assert second.message_id == "msg-2"
+    assert ("messages.list", "me", "is:unread", "page-2", 1) in service.calls
+
+
 def test_gmail_api_provider_reads_message_by_id():
     raw_message = {
         "id": "msg-1",

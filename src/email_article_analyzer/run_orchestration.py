@@ -71,11 +71,13 @@ class RunOrchestrator:
             message="Gmail discovery started",
         )
 
-        candidates = self.discovery_service.discover_candidates()
+        candidates = self._candidate_iterator()
         processed_count = 0
         stopped = False
         needed_source_logins: set[str] = set()
+        discovered_count = 0
         for candidate in candidates:
+            discovered_count += 1
             if self.stop_requested():
                 stopped = True
                 self.run_repository.add_event(
@@ -86,7 +88,7 @@ class RunOrchestrator:
                     severity="warning",
                     details={
                         "processed_count": processed_count,
-                        "candidate_count": len(candidates),
+                        "candidate_count": discovered_count,
                     },
                 )
                 break
@@ -136,7 +138,7 @@ class RunOrchestrator:
             stage="completion",
             message="Run stopped" if stopped else "Run completed",
             details={
-                "candidate_count": len(candidates),
+                "candidate_count": discovered_count,
                 "processed_count": processed_count,
             },
         )
@@ -146,6 +148,12 @@ class RunOrchestrator:
             candidate_count=processed_count,
             needed_source_logins=sorted(needed_source_logins),
         )
+
+    def _candidate_iterator(self):
+        iterator = getattr(self.discovery_service, "iter_candidates", None)
+        if iterator is not None:
+            return iterator()
+        return iter(self.discovery_service.discover_candidates())
 
     def _persist_candidate(
         self,

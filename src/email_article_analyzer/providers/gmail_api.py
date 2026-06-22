@@ -15,11 +15,25 @@ class GmailApiProvider:
         query: str,
         max_results: int | None = None,
     ) -> list[GmailMessage]:
-        messages: list[GmailMessage] = []
+        return list(
+            self.iter_unread_messages(
+                query=query,
+                max_results=max_results,
+                page_size=100,
+            )
+        )
+
+    def iter_unread_messages(
+        self,
+        query: str,
+        max_results: int | None = None,
+        page_size: int = 10,
+    ):
+        emitted = 0
         page_token = None
         while True:
-            page_size = min(max_results - len(messages), 100) if max_results else 100
-            if page_size <= 0:
+            request_page_size = min(max_results - emitted, page_size) if max_results else page_size
+            if request_page_size <= 0:
                 break
             response = (
                 self.service.users()
@@ -28,12 +42,12 @@ class GmailApiProvider:
                     userId=self.user_id,
                     q=query,
                     pageToken=page_token,
-                    maxResults=page_size,
+                    maxResults=request_page_size,
                 )
                 .execute()
             )
             for item in response.get("messages", []):
-                if max_results is not None and len(messages) >= max_results:
+                if max_results is not None and emitted >= max_results:
                     break
                 raw_message = (
                     self.service.users()
@@ -41,11 +55,11 @@ class GmailApiProvider:
                     .get(userId=self.user_id, id=item["id"], format="full")
                     .execute()
                 )
-                messages.append(parse_gmail_message(raw_message))
+                emitted += 1
+                yield parse_gmail_message(raw_message)
             page_token = response.get("nextPageToken")
-            if not page_token or (max_results is not None and len(messages) >= max_results):
+            if not page_token or (max_results is not None and emitted >= max_results):
                 break
-        return messages
 
     def read_message(self, message_id: str) -> GmailMessage:
         raw_message = (

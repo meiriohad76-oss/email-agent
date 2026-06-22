@@ -36,6 +36,14 @@ class GmailProvider(Protocol):
     ) -> list[GmailMessage]:
         ...
 
+    def iter_unread_messages(
+        self,
+        query: str,
+        max_results: int | None = None,
+        page_size: int = 10,
+    ):
+        ...
+
     def add_label(self, message_id: str, label: str) -> None:
         ...
 
@@ -58,12 +66,25 @@ class GmailDiscoveryService:
         self.sources = sources
 
     def discover_candidates(self) -> list[GmailCandidate]:
-        messages = self.provider.search_unread_messages(
-            build_unread_trusted_query(self.sources),
-            max_results=DISCOVERY_SCAN_LIMIT,
-        )
-        candidates: list[GmailCandidate] = []
-        for message in sorted(messages, key=lambda item: item.internal_date_ms, reverse=True):
+        return list(self.iter_candidates())
+
+    def iter_candidates(self):
+        query = build_unread_trusted_query(self.sources)
+        message_iterator = getattr(self.provider, "iter_unread_messages", None)
+        if message_iterator is None:
+            messages = self.provider.search_unread_messages(
+                query,
+                max_results=DISCOVERY_SCAN_LIMIT,
+            )
+            iterable = sorted(messages, key=lambda item: item.internal_date_ms, reverse=True)
+        else:
+            iterable = message_iterator(
+                query,
+                max_results=DISCOVERY_SCAN_LIMIT,
+                page_size=10,
+            )
+
+        for message in iterable:
             if ANALYZED_LABEL in message.labels:
                 continue
             source = match_source_for_sender(message.sender)
@@ -76,14 +97,11 @@ class GmailDiscoveryService:
             )
             if headline_link is None:
                 continue
-            candidates.append(
-                GmailCandidate(
-                    message=message,
-                    source=source,
-                    headline_link=headline_link,
-                )
+            yield GmailCandidate(
+                message=message,
+                source=source,
+                headline_link=headline_link,
             )
-        return candidates
 
     def mark_success(self, message_id: str) -> None:
         self.provider.mark_read(message_id)

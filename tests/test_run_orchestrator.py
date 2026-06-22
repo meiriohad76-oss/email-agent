@@ -27,6 +27,20 @@ class FakeDiscoveryService:
         self.failures.append(message_id)
 
 
+class FakeStreamingDiscoveryService(FakeDiscoveryService):
+    def __init__(self, candidates, log, analyzer):
+        super().__init__(candidates)
+        self.log = log
+        self.analyzer = analyzer
+
+    def iter_candidates(self, limit=None):
+        self.called = True
+        for candidate in self.candidates:
+            self.log.append(("yield_candidate", candidate.message.message_id))
+            yield candidate
+            self.log.append(("after_candidate", candidate.message.message_id, len(self.analyzer.calls)))
+
+
 class FakeArticleAnalyzer:
     def __init__(self):
         self.calls = []
@@ -521,6 +535,72 @@ def test_run_orchestrator_marks_and_skips_previously_analyzed_gmail_message(tmp_
     assert discovery_service.successes == ["msg-1"]
     event_types = [event["event_type"] for event in run_repo.list_events(result.run_id)]
     assert "candidate_already_analyzed" in event_types
+
+
+def test_run_orchestrator_analyzes_streamed_candidate_before_discovering_next_email(tmp_path):
+    db_path = str(tmp_path / "app.db")
+    initialize_database(db_path)
+    source = next(source for source in TRUSTED_SOURCES if source.source_key == "seeking_alpha")
+    candidates = [
+        GmailCandidate(
+            message=GmailMessage(
+                message_id="msg-1",
+                thread_id="thread-1",
+                sender="alerts@seekingalpha.com",
+                subject="First",
+                labels=["UNREAD"],
+                html_body="<h1>First</h1>",
+                text_body="",
+                internal_date_ms=200,
+            ),
+            source=source,
+            headline_link=ExtractedLink(
+                url="https://seekingalpha.com/article/1-first",
+                detection_method="headline_anchor",
+                detection_confidence=0.9,
+            ),
+        ),
+        GmailCandidate(
+            message=GmailMessage(
+                message_id="msg-2",
+                thread_id="thread-2",
+                sender="alerts@seekingalpha.com",
+                subject="Second",
+                labels=["UNREAD"],
+                html_body="<h1>Second</h1>",
+                text_body="",
+                internal_date_ms=100,
+            ),
+            source=source,
+            headline_link=ExtractedLink(
+                url="https://seekingalpha.com/article/2-second",
+                detection_method="headline_anchor",
+                detection_confidence=0.9,
+            ),
+        ),
+    ]
+    analyzer = FakeArticleAnalyzer()
+    log = []
+    discovery_service = FakeStreamingDiscoveryService(candidates, log, analyzer)
+    orchestrator = RunOrchestrator(
+        run_repository=RunRepository(db_path),
+        gmail_repository=GmailDiscoveryRepository(db_path),
+        discovery_service=discovery_service,
+        article_analyzer=analyzer,
+    )
+
+    result = orchestrator.start_discovery_run(
+        extraction_model="gpt-extract",
+        summary_model="gpt-summary",
+    )
+
+    assert result.status == "completed"
+    assert result.candidate_count == 2
+    assert log[:3] == [
+        ("yield_candidate", "msg-1"),
+        ("after_candidate", "msg-1", 1),
+        ("yield_candidate", "msg-2"),
+    ]
 
 
 def test_run_orchestrator_stops_before_next_candidate_when_stop_requested(tmp_path):
