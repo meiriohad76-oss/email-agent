@@ -9,6 +9,7 @@ from email_article_analyzer.model_defaults import DEFAULT_EXTRACTION_MODEL
 from email_article_analyzer.model_defaults import DEFAULT_SUMMARY_MODEL
 from email_article_analyzer.model_defaults import normalize_model_name
 from email_article_analyzer.report_export import build_run_markdown_report
+from email_article_analyzer.report_pdf_export import build_run_pdf_report
 from email_article_analyzer.repositories import RunRepository
 
 router = APIRouter(prefix="/api/runs", tags=["runs"])
@@ -116,6 +117,28 @@ def export_run_report(run_id: int, request: Request) -> Response:
         media_type="text/markdown; charset=utf-8",
         headers={
             "Content-Disposition": f'attachment; filename="email-article-run-{run_id}-report.md"',
+        },
+    )
+
+
+@router.get("/{run_id}/report.pdf")
+def export_run_pdf_report(run_id: int, request: Request) -> Response:
+    repository = RunRepository(request.app.state.database_path)
+    try:
+        run = repository.get_run(run_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Run not found") from exc
+    pdf = build_run_pdf_report(
+        run=run,
+        counts=repository.discovery_counts(run_id),
+        events=repository.list_events(run_id),
+        articles=repository.list_discovered_articles(run_id),
+    )
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="email-article-run-{run_id}-report.pdf"',
         },
     )
 

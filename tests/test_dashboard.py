@@ -62,7 +62,7 @@ def test_dashboard_assets_are_served(tmp_path):
     assert "stopCurrentRun" in js_response.text
     assert "/api/runs/stop-current" in js_response.text
     assert "exportRunReport" in js_response.text
-    assert "/report.md" in js_response.text
+    assert "/report.pdf" in js_response.text
     assert "async function loadRunDetail" in js_response.text
     assert "await loadRunDetail(payload.run_id" in js_response.text
     assert "Run completed. Loaded details" in js_response.text

@@ -139,7 +139,7 @@ function exportRunReport() {
     setRunDetailStatus("Enter or load a run before exporting a report.", true);
     return;
   }
-  window.location.href = `/api/runs/${runId}/report.md`;
+  window.location.href = `/api/runs/${runId}/report.pdf`;
 }
 
 function setRunDetailStatus(message, isError = false) {
