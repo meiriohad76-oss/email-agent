@@ -113,6 +113,21 @@ class RunRepository:
             ).fetchone()[0]
         return {"gmail_messages": int(gmail_messages), "article_links": int(article_links)}
 
+    def has_analyzed_gmail_message(self, gmail_message_id: str) -> bool:
+        with connect(self.database_path) as conn:
+            row = conn.execute(
+                """
+                SELECT 1
+                FROM gmail_messages
+                JOIN article_links ON article_links.gmail_message_id = gmail_messages.id
+                JOIN article_analyses ON article_analyses.article_link_id = article_links.id
+                WHERE gmail_messages.gmail_message_id = ?
+                LIMIT 1
+                """,
+                (gmail_message_id,),
+            ).fetchone()
+        return row is not None
+
     def list_discovered_articles(self, run_id: int) -> list[dict[str, Any]]:
         with connect(self.database_path) as conn:
             active_tickers = {

@@ -90,11 +90,28 @@ class RunOrchestrator:
                     },
                 )
                 break
+            if self.run_repository.has_analyzed_gmail_message(candidate.message.message_id):
+                self.discovery_service.mark_success(candidate.message.message_id)
+                self.run_repository.add_event(
+                    run_id=run_id,
+                    event_type="candidate_already_analyzed",
+                    stage="gmail_discovery",
+                    message="Gmail message was already analyzed in an earlier run; marked and skipped",
+                    entity_type="gmail_message",
+                    entity_id=candidate.message.message_id,
+                    details={
+                        "source_key": candidate.source.source_key,
+                        "url": candidate.headline_link.url,
+                    },
+                )
+                continue
             try:
                 if self._persist_candidate(run_id, candidate, summary_model):
                     needed_source_logins.add(candidate.source.source_key)
+                self.discovery_service.mark_success(candidate.message.message_id)
                 processed_count += 1
             except Exception as exc:
+                self.discovery_service.mark_failure(candidate.message.message_id)
                 self.run_repository.add_event(
                     run_id=run_id,
                     event_type="candidate_processing_failed",

@@ -86,6 +86,46 @@ def test_gmail_repository_saves_article_analysis(tmp_path):
     assert analysis["mentioned_tickers_json"] == '["NVDA"]'
 
 
+def test_run_repository_detects_previously_analyzed_gmail_message(tmp_path):
+    db_path = str(tmp_path / "app.db")
+    initialize_database(db_path)
+    gmail_repo = GmailDiscoveryRepository(db_path)
+    run_repo = RunRepository(db_path)
+    gmail_row_id = gmail_repo.save_message(
+        run_id=run_repo.create_run("gpt-extract", "gpt-summary"),
+        gmail_message_id="msg-1",
+        thread_id="thread-1",
+        sender="alerts@seekingalpha.com",
+        subject="Story",
+        labels=["UNREAD"],
+        source_key="seeking_alpha",
+        processing_status="discovered",
+    )
+    link_id = gmail_repo.save_article_link(
+        gmail_message_row_id=gmail_row_id,
+        source_key="seeking_alpha",
+        raw_url="https://seekingalpha.com/article/1",
+        normalized_url="https://seekingalpha.com/article/1",
+        detection_method="headline_anchor",
+        detection_confidence=0.9,
+        heuristic_notes=None,
+    )
+    gmail_repo.save_article_analysis(
+        article_link_id=link_id,
+        provider="openai",
+        model="gpt-summary",
+        summary="Done.",
+        stance="hold",
+        confidence=0.8,
+        supporting_evidence=["Evidence"],
+        mentioned_tickers=["AAPL"],
+        raw_response={},
+    )
+
+    assert run_repo.has_analyzed_gmail_message("msg-1") is True
+    assert run_repo.has_analyzed_gmail_message("msg-2") is False
+
+
 def test_gmail_repository_saves_article_content(tmp_path):
     db_path = str(tmp_path / "app.db")
     initialize_database(db_path)

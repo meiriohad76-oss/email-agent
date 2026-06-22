@@ -11,21 +11,31 @@ class GmailApiProvider:
         self._label_cache: dict[str, str] | None = None
 
     def search_unread_messages(self, query: str) -> list[GmailMessage]:
-        response = (
-            self.service.users()
-            .messages()
-            .list(userId=self.user_id, q=query)
-            .execute()
-        )
         messages: list[GmailMessage] = []
-        for item in response.get("messages", []):
-            raw_message = (
+        page_token = None
+        while True:
+            response = (
                 self.service.users()
                 .messages()
-                .get(userId=self.user_id, id=item["id"], format="full")
+                .list(
+                    userId=self.user_id,
+                    q=query,
+                    pageToken=page_token,
+                    maxResults=100,
+                )
                 .execute()
             )
-            messages.append(parse_gmail_message(raw_message))
+            for item in response.get("messages", []):
+                raw_message = (
+                    self.service.users()
+                    .messages()
+                    .get(userId=self.user_id, id=item["id"], format="full")
+                    .execute()
+                )
+                messages.append(parse_gmail_message(raw_message))
+            page_token = response.get("nextPageToken")
+            if not page_token:
+                break
         return messages
 
     def read_message(self, message_id: str) -> GmailMessage:

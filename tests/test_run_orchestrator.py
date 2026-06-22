@@ -13,10 +13,18 @@ class FakeDiscoveryService:
     def __init__(self, candidates):
         self.candidates = candidates
         self.called = False
+        self.successes = []
+        self.failures = []
 
     def discover_candidates(self):
         self.called = True
         return self.candidates
+
+    def mark_success(self, message_id):
+        self.successes.append(message_id)
+
+    def mark_failure(self, message_id):
+        self.failures.append(message_id)
 
 
 class FakeArticleAnalyzer:
@@ -179,6 +187,8 @@ def test_run_orchestrator_persists_candidates_without_login_warning_when_no_fetc
     assert result.status == "completed"
     assert result.candidate_count == 1
     assert result.needed_source_logins == []
+    assert discovery_service.successes == ["msg-1"]
+    assert discovery_service.failures == []
     assert run_repo.discovery_counts(result.run_id) == {
         "gmail_messages": 1,
         "article_links": 1,
@@ -330,10 +340,11 @@ def test_run_orchestrator_records_failed_content_fetch_and_falls_back_to_headlin
     content_fetcher = FailingArticleContentFetcher()
     run_repo = RunRepository(db_path)
     gmail_repo = GmailDiscoveryRepository(db_path)
+    discovery_service = FakeDiscoveryService([candidate])
     orchestrator = RunOrchestrator(
         run_repository=run_repo,
         gmail_repository=gmail_repo,
-        discovery_service=FakeDiscoveryService([candidate]),
+        discovery_service=discovery_service,
         article_analyzer=analyzer,
         article_content_fetcher=content_fetcher,
     )
@@ -344,6 +355,8 @@ def test_run_orchestrator_records_failed_content_fetch_and_falls_back_to_headlin
     )
 
     assert result.status == "completed"
+    assert discovery_service.successes == ["msg-1"]
+    assert discovery_service.failures == []
     assert analyzer.calls == [
         {
             "url": "https://seekingalpha.com/article/1",
@@ -404,10 +417,11 @@ def test_run_orchestrator_records_candidate_failure_and_completes_run(tmp_path):
         ),
     )
     run_repo = RunRepository(db_path)
+    discovery_service = FakeDiscoveryService([candidate])
     orchestrator = RunOrchestrator(
         run_repository=run_repo,
         gmail_repository=GmailDiscoveryRepository(db_path),
-        discovery_service=FakeDiscoveryService([candidate]),
+        discovery_service=discovery_service,
         article_analyzer=FailingArticleAnalyzer(),
     )
 
@@ -418,6 +432,8 @@ def test_run_orchestrator_records_candidate_failure_and_completes_run(tmp_path):
 
     run = run_repo.get_run(result.run_id)
     assert result.status == "completed"
+    assert discovery_service.successes == []
+    assert discovery_service.failures == ["msg-1"]
     assert run["status"] == "completed"
     events = run_repo.list_events(result.run_id)
     assert [event["event_type"] for event in events] == [
@@ -429,6 +445,82 @@ def test_run_orchestrator_records_candidate_failure_and_completes_run(tmp_path):
     ]
     assert events[3]["severity"] == "warning"
     assert events[3]["message"] == "Candidate processing failed; continuing run"
+
+
+def test_run_orchestrator_marks_and_skips_previously_analyzed_gmail_message(tmp_path):
+    db_path = str(tmp_path / "app.db")
+    initialize_database(db_path)
+    source = next(source for source in TRUSTED_SOURCES if source.source_key == "seeking_alpha")
+    candidate = GmailCandidate(
+        message=GmailMessage(
+            message_id="msg-1",
+            thread_id="thread-1",
+            sender="alerts@seekingalpha.com",
+            subject="Story",
+            labels=["UNREAD"],
+            html_body="<h1>Story</h1>",
+            text_body="",
+        ),
+        source=source,
+        headline_link=ExtractedLink(
+            url="https://seekingalpha.com/article/1",
+            detection_method="headline_anchor",
+            detection_confidence=0.9,
+        ),
+    )
+    run_repo = RunRepository(db_path)
+    gmail_repo = GmailDiscoveryRepository(db_path)
+    previous_run_id = run_repo.create_run("gpt-extract", "gpt-summary")
+    message_row_id = gmail_repo.save_message(
+        run_id=previous_run_id,
+        gmail_message_id="msg-1",
+        thread_id="thread-1",
+        sender="alerts@seekingalpha.com",
+        subject="Story",
+        labels=["UNREAD"],
+        source_key="seeking_alpha",
+        processing_status="discovered",
+    )
+    link_id = gmail_repo.save_article_link(
+        gmail_message_row_id=message_row_id,
+        source_key="seeking_alpha",
+        raw_url="https://seekingalpha.com/article/1",
+        normalized_url="https://seekingalpha.com/article/1",
+        detection_method="headline_anchor",
+        detection_confidence=0.9,
+        heuristic_notes=None,
+    )
+    gmail_repo.save_article_analysis(
+        article_link_id=link_id,
+        provider="openai",
+        model="gpt-summary",
+        summary="Already analyzed.",
+        stance="hold",
+        confidence=0.8,
+        supporting_evidence=["Evidence"],
+        mentioned_tickers=["AAPL"],
+        raw_response={},
+    )
+    discovery_service = FakeDiscoveryService([candidate])
+    analyzer = FakeArticleAnalyzer()
+    orchestrator = RunOrchestrator(
+        run_repository=run_repo,
+        gmail_repository=gmail_repo,
+        discovery_service=discovery_service,
+        article_analyzer=analyzer,
+    )
+
+    result = orchestrator.start_discovery_run(
+        extraction_model="gpt-extract",
+        summary_model="gpt-summary",
+    )
+
+    assert result.status == "completed"
+    assert result.candidate_count == 0
+    assert analyzer.calls == []
+    assert discovery_service.successes == ["msg-1"]
+    event_types = [event["event_type"] for event in run_repo.list_events(result.run_id)]
+    assert "candidate_already_analyzed" in event_types
 
 
 def test_run_orchestrator_stops_before_next_candidate_when_stop_requested(tmp_path):
