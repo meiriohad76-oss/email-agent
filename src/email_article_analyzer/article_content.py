@@ -16,6 +16,16 @@ class ArticleContent:
     extracted_text: str
 
 
+class ArticleContentFetchError(RuntimeError):
+    def __init__(self, message: str, *, stage: str, details: dict | None = None):
+        super().__init__(message)
+        self.stage = stage
+        self.details = {
+            "failure_stage": stage,
+            **(details or {}),
+        }
+
+
 class ArticleContentFetcherProtocol(Protocol):
     def fetch(self, url: str) -> ArticleContent:
         pass
@@ -115,6 +125,11 @@ class UserChromeArticleContentFetcher:
             self._chrome_started = True
         return self.page_reader.fetch(url)
 
+    def close(self) -> None:
+        closer = getattr(self.page_reader, "close", None)
+        if callable(closer):
+            closer()
+
 
 class ChromeDevtoolsPageReader:
     def __init__(
@@ -128,24 +143,37 @@ class ChromeDevtoolsPageReader:
         self.wait_seconds = wait_seconds
         self.playwright_factory = playwright_factory
         self.sleep = sleep
+        self._playwright = None
+        self._browser = None
+        self._page = None
 
     def fetch(self, url: str) -> ArticleContent:
-        playwright = self._start_playwright()
+        page = self._ensure_page()
+        response = self._navigate_with_retry(page, url)
         try:
-            browser = self._connect_with_retry(playwright)
-            page = self._open_page(browser)
-            page.goto(
-                url,
-                wait_until="domcontentloaded",
-                timeout=int(self.wait_seconds * 1000),
-            )
+            page.wait_for_load_state("networkidle", timeout=5000)
+        except Exception:
+            pass
+        try:
+            return _content_from_page(page, response)
+        except Exception as exc:
+            raise ArticleContentFetchError(
+                f"Article extraction failed: {exc}",
+                stage="extraction",
+                details={
+                    "url": url,
+                    **_page_diagnostics(page),
+                },
+            ) from exc
+
+    def close(self) -> None:
+        self._page = None
+        self._browser = None
+        if self._playwright is not None:
             try:
-                page.wait_for_load_state("networkidle", timeout=5000)
-            except Exception:
-                pass
-            return _content_from_page(page, None)
-        finally:
-            playwright.stop()
+                self._playwright.stop()
+            finally:
+                self._playwright = None
 
     def _start_playwright(self):
         if self.playwright_factory is not None:
@@ -154,20 +182,40 @@ class ChromeDevtoolsPageReader:
 
         return sync_playwright().start()
 
+    def _ensure_page(self):
+        if self._page is not None:
+            return self._page
+        if self._playwright is None:
+            self._playwright = self._start_playwright()
+        if self._browser is None:
+            try:
+                self._browser = self._connect_with_retry(self._playwright)
+            except Exception:
+                self.close()
+                raise
+        self._page = self._open_page(self._browser)
+        return self._page
+
     def _connect_with_retry(self, playwright):
         deadline = time.monotonic() + self.wait_seconds
         last_error = None
+        connect_timeout_ms = min(5000, max(1000, int(self.wait_seconds * 1000)))
         while time.monotonic() < deadline:
             try:
                 return playwright.chromium.connect_over_cdp(
                     self.cdp_url,
-                    timeout=1000,
+                    timeout=connect_timeout_ms,
                 )
             except Exception as exc:
                 last_error = exc
                 self.sleep(0.25)
-        raise RuntimeError(
-            f"Chrome debug session unavailable at {self.cdp_url}: {last_error}"
+        raise ArticleContentFetchError(
+            f"Chrome debug session unavailable at {self.cdp_url}: {last_error}",
+            stage="cdp_connect",
+            details={
+                "cdp_url": self.cdp_url,
+                "connect_timeout_ms": connect_timeout_ms,
+            },
         )
 
     def _open_page(self, browser):
@@ -176,10 +224,38 @@ class ChromeDevtoolsPageReader:
             for context in browser.contexts:
                 if context.pages:
                     return context.pages[-1]
-            time.sleep(0.25)
+            self.sleep(0.25)
         if browser.contexts:
             return browser.contexts[0].new_page()
-        raise RuntimeError("No Chrome context available for article extraction")
+        raise ArticleContentFetchError(
+            "No Chrome context available for article extraction",
+            stage="page_open",
+            details={"cdp_url": self.cdp_url},
+        )
+
+    def _navigate_with_retry(self, page, url: str):
+        attempts = 2
+        last_error = None
+        for attempt in range(1, attempts + 1):
+            try:
+                return page.goto(
+                    url,
+                    wait_until="domcontentloaded",
+                    timeout=int(self.wait_seconds * 1000),
+                )
+            except Exception as exc:
+                last_error = exc
+                if attempt < attempts:
+                    self.sleep(0.5)
+        raise ArticleContentFetchError(
+            f"Article navigation failed after {attempts} attempts: {last_error}",
+            stage="navigation",
+            details={
+                "url": url,
+                "attempts": attempts,
+                **_page_diagnostics(page),
+            },
+        )
 
 
 class BrowserArticleContentFetcher:
@@ -368,6 +444,20 @@ def _set_page_timeouts(page, timeout_ms: int) -> None:
             method(timeout_ms)
         except Exception:
             pass
+
+
+def _page_diagnostics(page) -> dict:
+    return {
+        "final_url": _safe_page_value(lambda: str(page.url)),
+        "page_title": _safe_page_value(page.title),
+    }
+
+
+def _safe_page_value(reader):
+    try:
+        return reader()
+    except Exception:
+        return None
 
 
 def _default_article_chrome_launcher():

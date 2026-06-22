@@ -1,5 +1,8 @@
+import json
+
 from email_article_analyzer.db import initialize_database
 from email_article_analyzer.article_analysis import ArticleAnalysisResult
+from email_article_analyzer.article_content import ArticleContentFetchError
 from email_article_analyzer.gmail import GmailCandidate, GmailMessage
 from email_article_analyzer.link_extraction import ExtractedLink
 from email_article_analyzer.model_defaults import DEFAULT_EXTRACTION_MODEL
@@ -134,10 +137,14 @@ class FakeArticleContent:
 class FakeArticleContentFetcher:
     def __init__(self):
         self.calls = []
+        self.closed = False
 
     def fetch(self, url):
         self.calls.append(url)
         return FakeArticleContent()
+
+    def close(self):
+        self.closed = True
 
 
 class FailingArticleContentFetcher:
@@ -147,6 +154,24 @@ class FailingArticleContentFetcher:
     def fetch(self, url):
         self.calls.append(url)
         raise RuntimeError("HTTP 403 Forbidden")
+
+
+class DiagnosticFailingArticleContentFetcher:
+    def __init__(self):
+        self.calls = []
+
+    def fetch(self, url):
+        self.calls.append(url)
+        raise ArticleContentFetchError(
+            "Article navigation failed after 2 attempts: timeout",
+            stage="navigation",
+            details={
+                "url": url,
+                "attempts": 2,
+                "final_url": "about:blank",
+                "page_title": "",
+            },
+        )
 
 
 class FailingArticleAnalyzer:
@@ -256,6 +281,7 @@ def test_run_orchestrator_analyzes_discovered_headline_link_when_analyzer_is_con
     )
 
     assert content_fetcher.calls == ["https://seekingalpha.com/article/1"]
+    assert content_fetcher.closed is True
     assert analyzer.calls == [
         {
             "url": "https://seekingalpha.com/article/1",
@@ -407,6 +433,49 @@ def test_run_orchestrator_records_failed_content_fetch_and_falls_back_to_headlin
     assert warning["severity"] == "warning"
     assert warning["message"] == "Article content fetch failed; falling back to email-body analysis"
     assert result.needed_source_logins == ["seeking_alpha"]
+
+
+def test_run_orchestrator_records_structured_content_fetch_diagnostics(tmp_path):
+    db_path = str(tmp_path / "app.db")
+    initialize_database(db_path)
+    source = next(source for source in TRUSTED_SOURCES if source.source_key == "seeking_alpha")
+    candidate = GmailCandidate(
+        message=GmailMessage(
+            message_id="msg-1",
+            thread_id="thread-1",
+            sender="alerts@seekingalpha.com",
+            subject="Story",
+            labels=["UNREAD"],
+            html_body="<html><body><h1>Story</h1><p>Newsletter fallback.</p></body></html>",
+            text_body="",
+        ),
+        source=source,
+        headline_link=ExtractedLink(
+            url="https://seekingalpha.com/article/1",
+            detection_method="headline_anchor",
+            detection_confidence=0.9,
+        ),
+    )
+    run_repo = RunRepository(db_path)
+    gmail_repo = GmailDiscoveryRepository(db_path)
+    orchestrator = RunOrchestrator(
+        run_repository=run_repo,
+        gmail_repository=gmail_repo,
+        discovery_service=FakeDiscoveryService([candidate]),
+        article_analyzer=FakeArticleAnalyzer(),
+        article_content_fetcher=DiagnosticFailingArticleContentFetcher(),
+    )
+
+    result = orchestrator.start_discovery_run(
+        extraction_model="gpt-extract",
+        summary_model="gpt-summary",
+    )
+
+    warning = run_repo.list_events(result.run_id)[3]
+    details = json.loads(warning["details_json"])
+    assert details["failure_stage"] == "navigation"
+    assert details["attempts"] == 2
+    assert details["final_url"] == "about:blank"
 
 
 def test_run_orchestrator_records_candidate_failure_and_completes_run(tmp_path):

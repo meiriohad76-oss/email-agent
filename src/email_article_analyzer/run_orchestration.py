@@ -130,6 +130,8 @@ class RunOrchestrator:
                 )
                 processed_count += 1
 
+        self._close_article_content_fetcher()
+
         final_status = "stopped" if stopped else "completed"
         self.run_repository.complete_run(run_id, status=final_status)
         self.run_repository.add_event(
@@ -154,6 +156,16 @@ class RunOrchestrator:
         if iterator is not None:
             return iterator()
         return iter(self.discovery_service.discover_candidates())
+
+    def _close_article_content_fetcher(self) -> None:
+        if self.article_content_fetcher is None:
+            return
+        closer = getattr(self.article_content_fetcher, "close", None)
+        if callable(closer):
+            try:
+                closer()
+            except Exception:
+                pass
 
     def _persist_candidate(
         self,
@@ -206,6 +218,10 @@ class RunOrchestrator:
             except Exception as exc:
                 needs_source_login = True
                 failure_reason = str(exc)
+                failure_details = {
+                    "failure_stage": getattr(exc, "stage", "unknown"),
+                    **getattr(exc, "details", {}),
+                }
                 article_title = message.subject
                 article_text = _email_body_fallback_text(message)
                 content_id = self.gmail_repository.save_article_content(
@@ -233,6 +249,7 @@ class RunOrchestrator:
                         "content_id": content_id,
                         "failure_reason": failure_reason,
                         "fallback_text_char_count": len(article_text or ""),
+                        **failure_details,
                     },
                 )
             else:

@@ -1,5 +1,6 @@
 from email_article_analyzer.article_content import (
     ArticleContent,
+    ArticleContentFetchError,
     ArticleContentFetcher,
     BrowserArticleContentFetcher,
     ChromeDevtoolsPageReader,
@@ -124,6 +125,37 @@ def test_user_chrome_article_content_fetcher_starts_chrome_once_for_multiple_art
     ]
 
 
+def test_user_chrome_article_content_fetcher_closes_page_reader():
+    class FakeChromeLauncher:
+        def open_url(self, url):
+            pass
+
+    class FakePageReader:
+        def __init__(self):
+            self.closed = False
+
+        def fetch(self, url):
+            return ArticleContent(
+                final_url=url,
+                http_status=0,
+                title="Story title",
+                extracted_text="Authenticated article text.",
+            )
+
+        def close(self):
+            self.closed = True
+
+    page_reader = FakePageReader()
+    fetcher = UserChromeArticleContentFetcher(
+        chrome_launcher=FakeChromeLauncher(),
+        page_reader=page_reader,
+    )
+
+    fetcher.close()
+
+    assert page_reader.closed is True
+
+
 class FakeLocator:
     def __init__(self, text):
         self.text = text
@@ -157,6 +189,19 @@ class FakePage:
     def locator(self, selector):
         self.calls.append(("locator", selector))
         return FakeLocator("Authenticated article text")
+
+
+class FlakyGotoPage(FakePage):
+    def __init__(self, failures_before_success):
+        super().__init__()
+        self.failures_before_success = failures_before_success
+
+    def goto(self, url, wait_until, timeout):
+        self.calls.append(("goto", url, wait_until, timeout))
+        if self.failures_before_success:
+            self.failures_before_success -= 1
+            raise RuntimeError("navigation timeout")
+        return FakeResponse()
 
 
 class FakeCdpContext:
@@ -207,7 +252,69 @@ def test_chrome_devtools_page_reader_retries_until_chrome_debug_port_is_ready():
     assert sleeps == [0.25, 0.25]
     assert ("goto", "https://seekingalpha.com/article/1", "domcontentloaded", 5000) in playwright.chromium.page.calls
     assert content.extracted_text == "Authenticated article text"
+    assert playwright.stopped is False
+
+    reader.close()
+
     assert playwright.stopped is True
+
+
+def test_chrome_devtools_page_reader_reuses_cdp_connection_for_multiple_fetches():
+    playwright = FakePlaywright(failures_before_success=0)
+    reader = ChromeDevtoolsPageReader(
+        cdp_url="http://127.0.0.1:9222",
+        wait_seconds=5,
+        playwright_factory=lambda: playwright,
+        sleep=lambda seconds: None,
+    )
+
+    reader.fetch("https://seekingalpha.com/article/1")
+    reader.fetch("https://seekingalpha.com/article/2")
+
+    assert playwright.chromium.calls == 1
+    assert ("goto", "https://seekingalpha.com/article/1", "domcontentloaded", 5000) in playwright.chromium.page.calls
+    assert ("goto", "https://seekingalpha.com/article/2", "domcontentloaded", 5000) in playwright.chromium.page.calls
+
+
+def test_chrome_devtools_page_reader_retries_navigation_once():
+    playwright = FakePlaywright(failures_before_success=0)
+    playwright.chromium.page = FlakyGotoPage(failures_before_success=1)
+    sleeps = []
+    reader = ChromeDevtoolsPageReader(
+        cdp_url="http://127.0.0.1:9222",
+        wait_seconds=5,
+        playwright_factory=lambda: playwright,
+        sleep=lambda seconds: sleeps.append(seconds),
+    )
+
+    content = reader.fetch("https://seekingalpha.com/article/1")
+
+    assert content.extracted_text == "Authenticated article text"
+    assert playwright.chromium.page.calls.count(
+        ("goto", "https://seekingalpha.com/article/1", "domcontentloaded", 5000)
+    ) == 2
+    assert sleeps == [0.5]
+
+
+def test_chrome_devtools_page_reader_reports_navigation_diagnostics_after_retry():
+    playwright = FakePlaywright(failures_before_success=0)
+    playwright.chromium.page = FlakyGotoPage(failures_before_success=2)
+    reader = ChromeDevtoolsPageReader(
+        cdp_url="http://127.0.0.1:9222",
+        wait_seconds=5,
+        playwright_factory=lambda: playwright,
+        sleep=lambda seconds: None,
+    )
+
+    try:
+        reader.fetch("https://seekingalpha.com/article/1")
+    except ArticleContentFetchError as exc:
+        assert exc.stage == "navigation"
+        assert exc.details["url"] == "https://seekingalpha.com/article/1"
+        assert exc.details["attempts"] == 2
+        assert exc.details["page_title"] == "Seeking Alpha Story"
+    else:
+        raise AssertionError("Expected navigation diagnostics")
 
 
 class FakeBrowserContext:
