@@ -4,6 +4,13 @@ from email_article_analyzer.repositories import GmailDiscoveryRepository, RunRep
 
 
 class FakeCredentials:
+    calls = []
+
+    @classmethod
+    def from_authorized_user_file(cls, token_path, scopes):
+        cls.calls.append((token_path, scopes))
+        return cls()
+
     def to_json(self):
         return '{"token": "fake"}'
 
@@ -19,6 +26,25 @@ class FakeFlow:
 def fake_flow_factory(credentials_path, scopes):
     FakeFlow.calls.append(("from_client_secrets_file", credentials_path, scopes))
     return FakeFlow()
+
+
+class FakeGmailProvider:
+    calls = []
+
+    def __init__(self, service):
+        self.service = service
+
+    def reset_processing_labels(self, query, label_names, mark_unread, max_results):
+        self.calls.append(
+            {
+                "service": self.service,
+                "query": query,
+                "label_names": label_names,
+                "mark_unread": mark_unread,
+                "max_results": max_results,
+            }
+        )
+        return 7
 
 
 def test_setup_status_cli_prints_first_run_checklist(tmp_path, monkeypatch, capsys):
@@ -114,6 +140,45 @@ def test_reset_analyzed_state_cli_clears_local_skip_state(tmp_path, monkeypatch,
     output = capsys.readouterr().out
     assert "Cleared 1 local article analysis row" in output
     assert "Gmail labels were not changed" in output
+
+
+def test_reset_gmail_processed_state_cli_removes_labels_and_marks_unread(tmp_path, monkeypatch, capsys):
+    token_path = tmp_path / "gmail_token.json"
+    token_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("GMAIL_TOKEN_PATH", str(token_path))
+    FakeCredentials.calls = []
+    FakeGmailProvider.calls = []
+    monkeypatch.setattr(
+        "email_article_analyzer.cli.Credentials",
+        FakeCredentials,
+    )
+    monkeypatch.setattr(
+        "email_article_analyzer.cli._build_gmail_service",
+        lambda credentials: "gmail-service",
+    )
+    monkeypatch.setattr(
+        "email_article_analyzer.cli.GmailApiProvider",
+        FakeGmailProvider,
+    )
+
+    exit_code = main(["reset-gmail-processed-state", "--max-results", "25"])
+
+    assert exit_code == 0
+    assert FakeCredentials.calls[0][0] == str(token_path)
+    assert "https://www.googleapis.com/auth/gmail.modify" in FakeCredentials.calls[0][1]
+    assert FakeGmailProvider.calls == [
+        {
+            "service": "gmail-service",
+            "query": 'label:Analyzed OR label:"Analysis Failed"',
+            "label_names": ["Analyzed", "Analysis Failed"],
+            "mark_unread": True,
+            "max_results": 25,
+        }
+    ]
+    output = capsys.readouterr().out
+    assert "Reset 7 Gmail message" in output
+    assert "Removed labels: Analyzed, Analysis Failed" in output
+    assert "Marked messages unread: yes" in output
 
 
 def test_first_run_setup_doc_has_required_steps():

@@ -310,3 +310,43 @@ def test_gmail_api_provider_removes_label_and_marks_read():
         "msg-1",
         {"addLabelIds": [], "removeLabelIds": ["UNREAD"]},
     ) in service.calls
+
+
+def test_gmail_api_provider_resets_processing_labels_and_marks_unread():
+    service = FakeGmailService(
+        messages={"msg-1": {}, "msg-2": {}},
+        labels=[
+            {"id": "Label_1", "name": "Analyzed"},
+            {"id": "Label_2", "name": "Analysis Failed"},
+        ],
+        pages=[{"messages": [{"id": "msg-1"}, {"id": "msg-2"}]}],
+    )
+    provider = GmailApiProvider(service=service)
+
+    reset_count = provider.reset_processing_labels(
+        query='label:Analyzed OR label:"Analysis Failed"',
+        label_names=["Analyzed", "Analysis Failed"],
+        mark_unread=True,
+        max_results=50,
+    )
+
+    assert reset_count == 2
+    assert (
+        "messages.list",
+        "me",
+        'label:Analyzed OR label:"Analysis Failed"',
+        None,
+        50,
+    ) in service.calls
+    assert (
+        "messages.modify",
+        "me",
+        "msg-1",
+        {"addLabelIds": ["UNREAD"], "removeLabelIds": ["Label_1", "Label_2"]},
+    ) in service.calls
+    assert (
+        "messages.modify",
+        "me",
+        "msg-2",
+        {"addLabelIds": ["UNREAD"], "removeLabelIds": ["Label_1", "Label_2"]},
+    ) in service.calls

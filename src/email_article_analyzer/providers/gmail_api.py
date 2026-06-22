@@ -81,6 +81,32 @@ class GmailApiProvider:
     def mark_read(self, message_id: str) -> None:
         self._modify_message(message_id, add_label_ids=[], remove_label_ids=["UNREAD"])
 
+    def reset_processing_labels(
+        self,
+        query: str,
+        label_names: list[str],
+        mark_unread: bool,
+        max_results: int | None = None,
+    ) -> int:
+        labels = self._labels_by_name()
+        remove_label_ids = [
+            labels[label_name]
+            for label_name in label_names
+            if label_name in labels
+        ]
+        if not remove_label_ids:
+            return 0
+
+        reset_count = 0
+        for message_id in self._iter_message_ids(query=query, max_results=max_results):
+            self._modify_message(
+                message_id,
+                add_label_ids=["UNREAD"] if mark_unread else [],
+                remove_label_ids=remove_label_ids,
+            )
+            reset_count += 1
+        return reset_count
+
     def _ensure_label_id(self, label_name: str) -> str:
         labels = self._labels_by_name()
         if label_name in labels:
@@ -103,6 +129,33 @@ class GmailApiProvider:
                 for label in response.get("labels", [])
             }
         return self._label_cache
+
+    def _iter_message_ids(self, query: str, max_results: int | None = None):
+        emitted = 0
+        page_token = None
+        while True:
+            request_page_size = min(max_results - emitted, 100) if max_results else 100
+            if request_page_size <= 0:
+                break
+            response = (
+                self.service.users()
+                .messages()
+                .list(
+                    userId=self.user_id,
+                    q=query,
+                    pageToken=page_token,
+                    maxResults=request_page_size,
+                )
+                .execute()
+            )
+            for item in response.get("messages", []):
+                if max_results is not None and emitted >= max_results:
+                    break
+                emitted += 1
+                yield item["id"]
+            page_token = response.get("nextPageToken")
+            if not page_token or (max_results is not None and emitted >= max_results):
+                break
 
     def _modify_message(
         self,
