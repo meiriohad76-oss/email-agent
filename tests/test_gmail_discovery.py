@@ -68,6 +68,51 @@ def test_discover_candidates_skips_non_trusted_and_already_analyzed_messages():
     assert candidates[0].headline_link.url == "https://seekingalpha.com/article/1"
 
 
+def test_discover_candidates_returns_valid_articles_newest_first():
+    provider = FakeGmailProvider(
+        messages=[
+            GmailMessage(
+                "old",
+                "thread-old",
+                "alerts@seekingalpha.com",
+                "Old",
+                [],
+                "<h1><a href='https://seekingalpha.com/article/1-old'>Old</a></h1>",
+                "",
+                internal_date_ms=100,
+            ),
+            GmailMessage(
+                "new",
+                "thread-new",
+                "alerts@seekingalpha.com",
+                "New",
+                [],
+                "<h1><a href='https://seekingalpha.com/article/2-new'>New</a></h1>",
+                "",
+                internal_date_ms=200,
+            ),
+            GmailMessage(
+                "newer-invalid",
+                "thread-newer-invalid",
+                "alerts@seekingalpha.com",
+                "Newer invalid",
+                [],
+                "<a href='https://seekingalpha.com/account/portfolio/all/holdings'>Portfolio</a>",
+                "",
+                internal_date_ms=300,
+            ),
+        ],
+        added_labels=[],
+        removed_labels=[],
+        marked_read=[],
+    )
+    service = GmailDiscoveryService(provider=provider, sources=TRUSTED_SOURCES)
+
+    candidates = service.discover_candidates()
+
+    assert [candidate.message.message_id for candidate in candidates] == ["new", "old"]
+
+
 def test_mark_success_marks_read_applies_analyzed_and_removes_failed():
     provider = FakeGmailProvider(messages=[], added_labels=[], removed_labels=[], marked_read=[])
     service = GmailDiscoveryService(provider=provider, sources=TRUSTED_SOURCES)

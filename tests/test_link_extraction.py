@@ -1,3 +1,5 @@
+import base64
+
 from email_article_analyzer.link_extraction import extract_headline_link
 from email_article_analyzer.sources import TRUSTED_SOURCES
 
@@ -62,6 +64,22 @@ def test_extract_headline_link_can_read_plain_text_urls():
 
     assert result.url == "https://seekingalpha.com/article/999-text-story"
     assert result.detection_method == "first_text_url"
+
+
+def test_extract_headline_link_unwraps_seeking_alpha_email_tracking_links():
+    article_url = (
+        "https://seekingalpha.com/account/email-auth?"
+        "ref=https%3A%2F%2Fseekingalpha.com%2Farticle%2F4916050-main-story"
+        "%3Fposition%3Dmust_reads"
+    )
+    encoded = base64.urlsafe_b64encode(article_url.encode("utf-8")).decode("ascii").rstrip("=")
+    tracking_url = f"https://email-st.seekingalpha.com/click/46245308.103702/{encoded}"
+    html = f"<h1><a href='{tracking_url}'>Main Story</a></h1>"
+
+    result = extract_headline_link(html=html, text="", source=SEEKING_ALPHA)
+
+    assert result.url == "https://seekingalpha.com/article/4916050-main-story?position=must_reads"
+    assert result.detection_method == "headline_anchor"
 
 
 def test_extract_headline_link_returns_none_when_no_source_link_exists():

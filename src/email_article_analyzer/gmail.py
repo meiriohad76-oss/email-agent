@@ -17,6 +17,7 @@ class GmailMessage:
     labels: list[str]
     html_body: str
     text_body: str
+    internal_date_ms: int = 0
 
 
 @dataclass(frozen=True)
@@ -54,7 +55,7 @@ class GmailDiscoveryService:
     def discover_candidates(self) -> list[GmailCandidate]:
         messages = self.provider.search_unread_messages(build_unread_trusted_query(self.sources))
         candidates: list[GmailCandidate] = []
-        for message in messages:
+        for message in sorted(messages, key=lambda item: item.internal_date_ms, reverse=True):
             if ANALYZED_LABEL in message.labels:
                 continue
             source = match_source_for_sender(message.sender)

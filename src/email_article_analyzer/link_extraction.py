@@ -1,7 +1,8 @@
 from dataclasses import dataclass
 from html.parser import HTMLParser
+import base64
 import re
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from email_article_analyzer.sources import TrustedSource, match_source_for_url
 
@@ -36,11 +37,11 @@ def extract_headline_link(html: str, text: str, source: TrustedSource) -> Extrac
     parser = _AnchorParser()
     parser.feed(html or "")
 
-    source_links = [
-        (href, in_heading)
-        for href, in_heading in parser.anchors
-        if _belongs_to_source(href, source) and _is_analyzable_source_link(href, source)
-    ]
+    source_links = []
+    for href, in_heading in parser.anchors:
+        article_url = _source_article_url(href, source)
+        if article_url:
+            source_links.append((article_url, in_heading))
     for href, in_heading in source_links:
         if in_heading:
             return ExtractedLink(href, "headline_anchor", 0.9)
@@ -49,8 +50,17 @@ def extract_headline_link(html: str, text: str, source: TrustedSource) -> Extrac
 
     for url in re.findall(r"https?://\S+", text or ""):
         cleaned = url.rstrip(").,;]")
-        if _belongs_to_source(cleaned, source) and _is_analyzable_source_link(cleaned, source):
-            return ExtractedLink(cleaned, "first_text_url", 0.55)
+        article_url = _source_article_url(cleaned, source)
+        if article_url:
+            return ExtractedLink(article_url, "first_text_url", 0.55)
+    return None
+
+
+def _source_article_url(url: str, source: TrustedSource) -> str | None:
+    candidates = [url, *_unwrap_tracking_urls(url)]
+    for candidate in candidates:
+        if _belongs_to_source(candidate, source) and _is_analyzable_source_link(candidate, source):
+            return candidate
     return None
 
 
@@ -68,11 +78,8 @@ def _is_analyzable_source_link(url: str, source: TrustedSource) -> bool:
 
 
 def _looks_like_seeking_alpha_article_link(url: str) -> bool:
-    expanded = _expanded_url_text(url)
-    return (
-        "seekingalpha.com/article/" in expanded
-        or "seekingalpha.com/news/" in expanded
-    )
+    path = urlparse(url).path.lower()
+    return path.startswith("/article/") or path.startswith("/news/")
 
 
 def _looks_like_zacks_article_link(url: str) -> bool:
@@ -92,3 +99,41 @@ def _expanded_url_text(url: str) -> str:
             break
         expanded = decoded
     return expanded
+
+
+def _unwrap_tracking_urls(url: str) -> list[str]:
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    if host.endswith("seekingalpha.com") and parsed.path.startswith("/click/"):
+        return _decode_seeking_alpha_tracking_urls(parsed.path)
+    return []
+
+
+def _decode_seeking_alpha_tracking_urls(path: str) -> list[str]:
+    urls: list[str] = []
+    for segment in path.split("/"):
+        if not segment:
+            continue
+        decoded = _decode_base64_url_segment(segment)
+        if not decoded:
+            continue
+        urls.append(decoded)
+        urls.extend(_extract_nested_ref_urls(decoded))
+    return urls
+
+
+def _decode_base64_url_segment(segment: str) -> str | None:
+    padding = "=" * (-len(segment) % 4)
+    try:
+        return base64.urlsafe_b64decode((segment + padding).encode("ascii")).decode(
+            "utf-8",
+            errors="replace",
+        )
+    except (ValueError, UnicodeDecodeError):
+        return None
+
+
+def _extract_nested_ref_urls(url: str) -> list[str]:
+    parsed = urlparse(url)
+    values = parse_qs(parsed.query).get("ref", [])
+    return [unquote(value) for value in values if value]

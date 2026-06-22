@@ -127,6 +127,7 @@ def parse_gmail_message(raw_message: dict) -> GmailMessage:
         labels=list(raw_message.get("labelIds", [])),
         html_body="\n".join(html_parts),
         text_body="\n".join(text_parts),
+        internal_date_ms=int(raw_message.get("internalDate") or 0),
     )
 
 
