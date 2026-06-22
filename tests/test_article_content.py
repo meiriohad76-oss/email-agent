@@ -82,7 +82,7 @@ def test_user_chrome_article_content_fetcher_starts_regular_chrome_before_readin
 
     content = fetcher.fetch("https://seekingalpha.com/article/1")
 
-    assert opened_urls == ["about:blank"]
+    assert opened_urls == ["https://seekingalpha.com/article/1"]
     assert page_reader.calls == ["https://seekingalpha.com/article/1"]
     assert content.title == "Story title"
 
@@ -116,7 +116,7 @@ def test_user_chrome_article_content_fetcher_starts_chrome_once_for_multiple_art
     fetcher.fetch("https://seekingalpha.com/article/1")
     fetcher.fetch("https://seekingalpha.com/article/2")
 
-    assert opened_urls == ["about:blank"]
+    assert opened_urls == ["https://seekingalpha.com/article/1"]
     assert page_reader.calls == [
         "https://seekingalpha.com/article/1",
         "https://seekingalpha.com/article/2",

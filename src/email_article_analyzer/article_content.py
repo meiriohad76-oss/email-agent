@@ -111,7 +111,7 @@ class UserChromeArticleContentFetcher:
 
     def fetch(self, url: str) -> ArticleContent:
         if not self._chrome_started:
-            self.chrome_launcher.open_url("about:blank")
+            self.chrome_launcher.open_url(url)
             self._chrome_started = True
         return self.page_reader.fetch(url)
 
