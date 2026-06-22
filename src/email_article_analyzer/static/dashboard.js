@@ -91,12 +91,12 @@ async function refreshProviderStatus() {
 }
 
 async function openSourceLoginBrowser() {
-  writeResult("run-start-result", "Opening source login browser...");
+  writeResult("run-start-result", "Opening Seeking Alpha and Zacks in Chrome...");
   try {
     const payload = await fetchJson("/api/source-logins/open", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ source: "seeking_alpha" }),
+      body: JSON.stringify({ source: "all" }),
     });
     writeResult("run-start-result", payload);
   } catch (error) {
@@ -110,7 +110,7 @@ async function confirmSourceLogins() {
     const payload = await fetchJson("/api/source-logins/confirm", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sources: ["seeking_alpha"] }),
+      body: JSON.stringify({ sources: ["seeking_alpha", "zacks"] }),
     });
     writeResult("run-start-result", payload);
     await refreshProviderStatus();

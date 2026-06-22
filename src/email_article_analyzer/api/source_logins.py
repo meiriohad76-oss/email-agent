@@ -3,13 +3,14 @@ from typing import Any
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
+from email_article_analyzer.sources import TRUSTED_SOURCES
 from email_article_analyzer.source_logins import SourceLoginStore
 
 router = APIRouter(prefix="/api/source-logins", tags=["source-logins"])
 
 
 class ConfirmSourceLoginsRequest(BaseModel):
-    sources: list[str] = ["seeking_alpha"]
+    sources: list[str] = ["seeking_alpha", "zacks"]
 
 
 class OpenSourceLoginRequest(BaseModel):
@@ -18,6 +19,7 @@ class OpenSourceLoginRequest(BaseModel):
 
 SOURCE_LOGIN_URLS = {
     "seeking_alpha": "https://seekingalpha.com/",
+    "zacks": "https://www.zacks.com/login",
 }
 
 
@@ -26,18 +28,23 @@ def open_source_login(
     payload: OpenSourceLoginRequest,
     request: Request,
 ) -> dict[str, Any]:
-    url = SOURCE_LOGIN_URLS.get(payload.source)
-    if url is None:
+    source_keys = _source_keys_to_open(payload.source)
+    if not source_keys:
         return {
             "status": "unsupported",
             "source": payload.source,
-            "url": None,
+            "opened_sources": [],
         }
-    request.app.state.source_browser_session.open_login_page(url)
+    opened_sources = []
+    launcher = request.app.state.source_login_launcher
+    for source_key in source_keys:
+        url = SOURCE_LOGIN_URLS[source_key]
+        launcher.open_url(url)
+        opened_sources.append({"source": source_key, "url": url})
     return {
         "status": "opened",
         "source": payload.source,
-        "url": url,
+        "opened_sources": opened_sources,
     }
 
 
@@ -52,3 +59,9 @@ def confirm_source_logins(
         "status": confirmation.status,
         "sources": confirmation.sources,
     }
+
+
+def _source_keys_to_open(source: str) -> list[str]:
+    if source == "all":
+        return [trusted.source_key for trusted in TRUSTED_SOURCES if trusted.source_key in SOURCE_LOGIN_URLS]
+    return [source] if source in SOURCE_LOGIN_URLS else []

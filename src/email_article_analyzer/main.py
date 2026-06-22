@@ -13,6 +13,7 @@ from email_article_analyzer.config import AppConfig
 from email_article_analyzer.db import initialize_database
 from email_article_analyzer.orchestrator_factory import create_run_orchestrator
 from email_article_analyzer.run_control import RunControl
+from email_article_analyzer.source_login_browser import UserChromeLoginLauncher
 
 
 def create_app(database_path: str | None = None, run_orchestrator=None) -> FastAPI:
@@ -24,6 +25,7 @@ def create_app(database_path: str | None = None, run_orchestrator=None) -> FastA
     app.state.config = config
     app.state.database_path = resolved_database_path
     app.state.source_browser_session = PersistentBrowserSession()
+    app.state.source_login_launcher = UserChromeLoginLauncher()
     app.state.run_control = RunControl()
     app.state.run_orchestrator = run_orchestrator
     if app.state.run_orchestrator is None:
