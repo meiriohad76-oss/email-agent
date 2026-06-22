@@ -2,6 +2,7 @@ from email_article_analyzer.article_content import (
     ArticleContent,
     ArticleContentFetcher,
     BrowserArticleContentFetcher,
+    ChromeDevtoolsPageReader,
     HybridArticleContentFetcher,
     UserChromeArticleContentFetcher,
 )
@@ -156,6 +157,57 @@ class FakePage:
     def locator(self, selector):
         self.calls.append(("locator", selector))
         return FakeLocator("Authenticated article text")
+
+
+class FakeCdpContext:
+    def __init__(self, page):
+        self.pages = [page]
+
+
+class FakeBrowser:
+    def __init__(self, page):
+        self.contexts = [FakeCdpContext(page)]
+
+
+class FakeChromium:
+    def __init__(self, failures_before_success):
+        self.failures_before_success = failures_before_success
+        self.calls = 0
+        self.page = FakePage()
+
+    def connect_over_cdp(self, cdp_url, timeout):
+        self.calls += 1
+        if self.calls <= self.failures_before_success:
+            raise RuntimeError("connect ECONNREFUSED 127.0.0.1:9222")
+        return FakeBrowser(self.page)
+
+
+class FakePlaywright:
+    def __init__(self, failures_before_success):
+        self.chromium = FakeChromium(failures_before_success)
+        self.stopped = False
+
+    def stop(self):
+        self.stopped = True
+
+
+def test_chrome_devtools_page_reader_retries_until_chrome_debug_port_is_ready():
+    playwright = FakePlaywright(failures_before_success=2)
+    sleeps = []
+    reader = ChromeDevtoolsPageReader(
+        cdp_url="http://127.0.0.1:9222",
+        wait_seconds=5,
+        playwright_factory=lambda: playwright,
+        sleep=lambda seconds: sleeps.append(seconds),
+    )
+
+    content = reader.fetch("https://seekingalpha.com/article/1")
+
+    assert playwright.chromium.calls == 3
+    assert sleeps == [0.25, 0.25]
+    assert ("goto", "https://seekingalpha.com/article/1", "domcontentloaded", 5000) in playwright.chromium.page.calls
+    assert content.extracted_text == "Authenticated article text"
+    assert playwright.stopped is True
 
 
 class FakeBrowserContext:

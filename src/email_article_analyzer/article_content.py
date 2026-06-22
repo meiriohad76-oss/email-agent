@@ -103,7 +103,7 @@ class UserChromeArticleContentFetcher:
         wait_seconds: float = 20.0,
     ):
         self.chrome_launcher = chrome_launcher or _default_article_chrome_launcher()
-        self.page_reader = page_reader or _ChromeDevtoolsPageReader(
+        self.page_reader = page_reader or ChromeDevtoolsPageReader(
             cdp_url=cdp_url,
             wait_seconds=wait_seconds,
         )
@@ -116,20 +116,23 @@ class UserChromeArticleContentFetcher:
         return self.page_reader.fetch(url)
 
 
-class _ChromeDevtoolsPageReader:
-    def __init__(self, cdp_url: str, wait_seconds: float):
+class ChromeDevtoolsPageReader:
+    def __init__(
+        self,
+        cdp_url: str,
+        wait_seconds: float,
+        playwright_factory=None,
+        sleep=time.sleep,
+    ):
         self.cdp_url = cdp_url
         self.wait_seconds = wait_seconds
+        self.playwright_factory = playwright_factory
+        self.sleep = sleep
 
     def fetch(self, url: str) -> ArticleContent:
-        from playwright.sync_api import sync_playwright
-
-        playwright = sync_playwright().start()
+        playwright = self._start_playwright()
         try:
-            browser = playwright.chromium.connect_over_cdp(
-                self.cdp_url,
-                timeout=int(self.wait_seconds * 1000),
-            )
+            browser = self._connect_with_retry(playwright)
             page = self._open_page(browser)
             page.goto(
                 url,
@@ -143,6 +146,29 @@ class _ChromeDevtoolsPageReader:
             return _content_from_page(page, None)
         finally:
             playwright.stop()
+
+    def _start_playwright(self):
+        if self.playwright_factory is not None:
+            return self.playwright_factory()
+        from playwright.sync_api import sync_playwright
+
+        return sync_playwright().start()
+
+    def _connect_with_retry(self, playwright):
+        deadline = time.monotonic() + self.wait_seconds
+        last_error = None
+        while time.monotonic() < deadline:
+            try:
+                return playwright.chromium.connect_over_cdp(
+                    self.cdp_url,
+                    timeout=1000,
+                )
+            except Exception as exc:
+                last_error = exc
+                self.sleep(0.25)
+        raise RuntimeError(
+            f"Chrome debug session unavailable at {self.cdp_url}: {last_error}"
+        )
 
     def _open_page(self, browser):
         deadline = time.monotonic() + self.wait_seconds

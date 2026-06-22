@@ -35,4 +35,7 @@ def test_create_app_uses_article_chrome_profile_for_source_logins(tmp_path):
     app = create_app(database_path=str(tmp_path / "app.db"), run_orchestrator=object())
 
     assert "--remote-debugging-port=9222" in app.state.source_login_launcher.extra_args
-    assert "--user-data-dir=data/user-chrome-profile" in app.state.source_login_launcher.extra_args
+    assert any(
+        arg.startswith("--user-data-dir=") and arg.endswith("data\\user-chrome-profile")
+        for arg in app.state.source_login_launcher.extra_args
+    )

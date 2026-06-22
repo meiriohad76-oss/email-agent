@@ -7,7 +7,6 @@ import sys
 
 ARTICLE_CHROME_EXTRA_ARGS = (
     "--remote-debugging-port=9222",
-    "--user-data-dir=data/user-chrome-profile",
     "--no-first-run",
 )
 
@@ -30,8 +29,20 @@ class UserChromeLoginLauncher:
         self.popen([chrome_path, *self.extra_args, url])
 
 
-def create_article_chrome_launcher() -> UserChromeLoginLauncher:
-    return UserChromeLoginLauncher(extra_args=ARTICLE_CHROME_EXTRA_ARGS)
+def create_article_chrome_launcher(
+    chrome_path: str | None = None,
+    popen=None,
+    profile_path: str | Path = "data/user-chrome-profile",
+) -> UserChromeLoginLauncher:
+    resolved_profile_path = Path(profile_path).resolve()
+    return UserChromeLoginLauncher(
+        chrome_path=chrome_path,
+        popen=popen,
+        extra_args=(
+            *ARTICLE_CHROME_EXTRA_ARGS,
+            f"--user-data-dir={resolved_profile_path}",
+        ),
+    )
 
 
 def find_chrome_executable() -> str | None:

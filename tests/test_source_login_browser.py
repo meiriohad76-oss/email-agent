@@ -1,6 +1,7 @@
 from email_article_analyzer.source_login_browser import (
     ARTICLE_CHROME_EXTRA_ARGS,
     UserChromeLoginLauncher,
+    create_article_chrome_launcher,
 )
 
 
@@ -51,3 +52,20 @@ def test_user_chrome_login_launcher_can_open_with_regular_chrome_debug_profile()
 
 def test_article_chrome_args_do_not_force_new_window_per_article():
     assert "--new-window" not in ARTICLE_CHROME_EXTRA_ARGS
+
+
+def test_article_chrome_launcher_uses_absolute_profile_path(tmp_path):
+    calls = []
+
+    def fake_popen(args):
+        calls.append(args)
+
+    launcher = create_article_chrome_launcher(
+        chrome_path="chrome.exe",
+        popen=fake_popen,
+        profile_path=tmp_path / "article-profile",
+    )
+
+    launcher.open_url("https://seekingalpha.com/article/1")
+
+    assert f"--user-data-dir={tmp_path / 'article-profile'}" in calls[0]
