@@ -10,10 +10,17 @@ class GmailApiProvider:
         self.user_id = user_id
         self._label_cache: dict[str, str] | None = None
 
-    def search_unread_messages(self, query: str) -> list[GmailMessage]:
+    def search_unread_messages(
+        self,
+        query: str,
+        max_results: int | None = None,
+    ) -> list[GmailMessage]:
         messages: list[GmailMessage] = []
         page_token = None
         while True:
+            page_size = min(max_results - len(messages), 100) if max_results else 100
+            if page_size <= 0:
+                break
             response = (
                 self.service.users()
                 .messages()
@@ -21,11 +28,13 @@ class GmailApiProvider:
                     userId=self.user_id,
                     q=query,
                     pageToken=page_token,
-                    maxResults=100,
+                    maxResults=page_size,
                 )
                 .execute()
             )
             for item in response.get("messages", []):
+                if max_results is not None and len(messages) >= max_results:
+                    break
                 raw_message = (
                     self.service.users()
                     .messages()
@@ -34,7 +43,7 @@ class GmailApiProvider:
                 )
                 messages.append(parse_gmail_message(raw_message))
             page_token = response.get("nextPageToken")
-            if not page_token:
+            if not page_token or (max_results is not None and len(messages) >= max_results):
                 break
         return messages
 

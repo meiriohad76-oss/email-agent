@@ -6,6 +6,7 @@ from email_article_analyzer.sources import TrustedSource, match_source_for_sende
 
 ANALYZED_LABEL = "Analyzed"
 FAILED_LABEL = "Analysis Failed"
+DISCOVERY_SCAN_LIMIT = 100
 
 
 @dataclass(frozen=True)
@@ -28,7 +29,11 @@ class GmailCandidate:
 
 
 class GmailProvider(Protocol):
-    def search_unread_messages(self, query: str) -> list[GmailMessage]:
+    def search_unread_messages(
+        self,
+        query: str,
+        max_results: int | None = None,
+    ) -> list[GmailMessage]:
         ...
 
     def add_label(self, message_id: str, label: str) -> None:
@@ -53,7 +58,10 @@ class GmailDiscoveryService:
         self.sources = sources
 
     def discover_candidates(self) -> list[GmailCandidate]:
-        messages = self.provider.search_unread_messages(build_unread_trusted_query(self.sources))
+        messages = self.provider.search_unread_messages(
+            build_unread_trusted_query(self.sources),
+            max_results=DISCOVERY_SCAN_LIMIT,
+        )
         candidates: list[GmailCandidate] = []
         for message in sorted(messages, key=lambda item: item.internal_date_ms, reverse=True):
             if ANALYZED_LABEL in message.labels:

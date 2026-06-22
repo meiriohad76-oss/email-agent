@@ -10,8 +10,10 @@ class FakeGmailProvider:
     added_labels: list[tuple[str, str]]
     removed_labels: list[tuple[str, str]]
     marked_read: list[str]
+    last_max_results: int | None = None
 
-    def search_unread_messages(self, query: str) -> list[GmailMessage]:
+    def search_unread_messages(self, query: str, max_results: int | None = None) -> list[GmailMessage]:
+        self.last_max_results = max_results
         return self.messages
 
     def add_label(self, message_id: str, label: str) -> None:
@@ -111,6 +113,7 @@ def test_discover_candidates_returns_valid_articles_newest_first():
     candidates = service.discover_candidates()
 
     assert [candidate.message.message_id for candidate in candidates] == ["new", "old"]
+    assert provider.last_max_results == 100
 
 
 def test_mark_success_marks_read_applies_analyzed_and_removes_failed():
