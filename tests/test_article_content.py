@@ -1,7 +1,9 @@
 from email_article_analyzer.article_content import (
+    ArticleContent,
     ArticleContentFetcher,
     BrowserArticleContentFetcher,
     HybridArticleContentFetcher,
+    UserChromeArticleContentFetcher,
 )
 
 
@@ -50,6 +52,39 @@ def test_article_content_fetcher_extracts_title_and_readable_text_from_html():
     assert "Gross margin expanded to 75%." in content.extracted_text
     assert "Navigation" not in content.extracted_text
     assert "ignore()" not in content.extracted_text
+
+
+def test_user_chrome_article_content_fetcher_opens_regular_chrome_before_reading():
+    opened_urls = []
+
+    class FakeChromeLauncher:
+        def open_url(self, url):
+            opened_urls.append(url)
+
+    class FakePageReader:
+        def __init__(self):
+            self.calls = []
+
+        def fetch(self, url):
+            self.calls.append(url)
+            return ArticleContent(
+                final_url=url,
+                http_status=0,
+                title="Story title",
+                extracted_text="Authenticated article text.",
+            )
+
+    page_reader = FakePageReader()
+    fetcher = UserChromeArticleContentFetcher(
+        chrome_launcher=FakeChromeLauncher(),
+        page_reader=page_reader,
+    )
+
+    content = fetcher.fetch("https://seekingalpha.com/article/1")
+
+    assert opened_urls == ["https://seekingalpha.com/article/1"]
+    assert page_reader.calls == ["https://seekingalpha.com/article/1"]
+    assert content.title == "Story title"
 
 
 class FakeLocator:

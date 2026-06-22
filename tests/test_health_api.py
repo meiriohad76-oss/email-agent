@@ -29,3 +29,10 @@ def test_create_app_uses_orchestrator_factory_when_not_injected(tmp_path, monkey
     assert calls[0][1] == str(tmp_path / "app.db")
     assert calls[0][2] is app.state.source_browser_session
     assert calls[0][3] is app.state.run_control
+
+
+def test_create_app_uses_article_chrome_profile_for_source_logins(tmp_path):
+    app = create_app(database_path=str(tmp_path / "app.db"), run_orchestrator=object())
+
+    assert "--remote-debugging-port=9222" in app.state.source_login_launcher.extra_args
+    assert "--user-data-dir=data/user-chrome-profile" in app.state.source_login_launcher.extra_args

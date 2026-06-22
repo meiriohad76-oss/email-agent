@@ -224,7 +224,7 @@ def test_create_article_content_fetcher_uses_verified_http_client():
     )
 
     assert isinstance(fetcher.http_fetcher.http_client, FakeHttpClient)
-    assert fetcher.browser_domains == ()
+    assert fetcher.browser_domains == ("seekingalpha.com", "zacks.com")
     assert calls["verify"] == "combined.pem"
 
 

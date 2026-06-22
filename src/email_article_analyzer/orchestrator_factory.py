@@ -13,6 +13,7 @@ from email_article_analyzer.article_analysis import OpenAIArticleAnalyzer
 from email_article_analyzer.article_content import (
     ArticleContentFetcher,
     HybridArticleContentFetcher,
+    UserChromeArticleContentFetcher,
 )
 from email_article_analyzer.config import AppConfig
 from email_article_analyzer.gmail import GmailDiscoveryService
@@ -101,10 +102,11 @@ def _create_article_content_fetcher(
     http_fetcher = ArticleContentFetcher(
         http_client=http_client_cls(verify=verify if tls_verify else False)
     )
+    browser_fetcher = UserChromeArticleContentFetcher()
     return HybridArticleContentFetcher(
         http_fetcher=http_fetcher,
-        browser_fetcher=http_fetcher,
-        browser_domains=(),
+        browser_fetcher=browser_fetcher,
+        browser_domains=("seekingalpha.com", "zacks.com"),
     )
 
 

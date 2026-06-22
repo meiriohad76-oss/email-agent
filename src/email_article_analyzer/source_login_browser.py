@@ -5,16 +5,34 @@ import subprocess
 import sys
 
 
+ARTICLE_CHROME_EXTRA_ARGS = (
+    "--remote-debugging-port=9222",
+    "--user-data-dir=data/user-chrome-profile",
+    "--no-first-run",
+    "--new-window",
+)
+
+
 class UserChromeLoginLauncher:
-    def __init__(self, chrome_path: str | None = None, popen=None):
+    def __init__(
+        self,
+        chrome_path: str | None = None,
+        popen=None,
+        extra_args: tuple[str, ...] = (),
+    ):
         self.chrome_path = chrome_path
         self.popen = popen or subprocess.Popen
+        self.extra_args = extra_args
 
     def open_url(self, url: str) -> None:
         chrome_path = self.chrome_path or find_chrome_executable()
         if chrome_path is None:
             raise RuntimeError("Google Chrome was not found on this machine")
-        self.popen([chrome_path, url])
+        self.popen([chrome_path, *self.extra_args, url])
+
+
+def create_article_chrome_launcher() -> UserChromeLoginLauncher:
+    return UserChromeLoginLauncher(extra_args=ARTICLE_CHROME_EXTRA_ARGS)
 
 
 def find_chrome_executable() -> str | None:

@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
+import time
 from urllib.parse import urlparse
 from typing import Protocol
 
@@ -91,6 +92,66 @@ class ArticleContentFetcher:
             title=parser.title,
             extracted_text=parser.body,
         )
+
+
+class UserChromeArticleContentFetcher:
+    def __init__(
+        self,
+        chrome_launcher=None,
+        page_reader=None,
+        cdp_url: str = "http://127.0.0.1:9222",
+        wait_seconds: float = 20.0,
+    ):
+        self.chrome_launcher = chrome_launcher or _default_article_chrome_launcher()
+        self.page_reader = page_reader or _ChromeDevtoolsPageReader(
+            cdp_url=cdp_url,
+            wait_seconds=wait_seconds,
+        )
+
+    def fetch(self, url: str) -> ArticleContent:
+        self.chrome_launcher.open_url(url)
+        return self.page_reader.fetch(url)
+
+
+class _ChromeDevtoolsPageReader:
+    def __init__(self, cdp_url: str, wait_seconds: float):
+        self.cdp_url = cdp_url
+        self.wait_seconds = wait_seconds
+
+    def fetch(self, url: str) -> ArticleContent:
+        from playwright.sync_api import sync_playwright
+
+        playwright = sync_playwright().start()
+        try:
+            browser = playwright.chromium.connect_over_cdp(
+                self.cdp_url,
+                timeout=int(self.wait_seconds * 1000),
+            )
+            page = self._find_open_page(browser, url)
+            if page is None:
+                page = browser.contexts[0].new_page()
+                page.goto(
+                    url,
+                    wait_until="domcontentloaded",
+                    timeout=int(self.wait_seconds * 1000),
+                )
+            try:
+                page.wait_for_load_state("networkidle", timeout=5000)
+            except Exception:
+                pass
+            return _content_from_page(page, None)
+        finally:
+            playwright.stop()
+
+    def _find_open_page(self, browser, url: str):
+        deadline = time.monotonic() + self.wait_seconds
+        while time.monotonic() < deadline:
+            for context in browser.contexts:
+                for page in reversed(context.pages):
+                    if _same_page_url(page.url, url):
+                        return page
+            time.sleep(0.25)
+        return None
 
 
 class BrowserArticleContentFetcher:
@@ -279,6 +340,21 @@ def _set_page_timeouts(page, timeout_ms: int) -> None:
             method(timeout_ms)
         except Exception:
             pass
+
+
+def _same_page_url(candidate_url: str, target_url: str) -> bool:
+    candidate = urlparse(candidate_url)
+    target = urlparse(target_url)
+    return (
+        candidate.hostname == target.hostname
+        and candidate.path.rstrip("/") == target.path.rstrip("/")
+    )
+
+
+def _default_article_chrome_launcher():
+    from email_article_analyzer.source_login_browser import create_article_chrome_launcher
+
+    return create_article_chrome_launcher()
 
 
 def _content_from_page(page, response) -> ArticleContent:
