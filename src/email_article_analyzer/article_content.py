@@ -107,9 +107,12 @@ class UserChromeArticleContentFetcher:
             cdp_url=cdp_url,
             wait_seconds=wait_seconds,
         )
+        self._chrome_started = False
 
     def fetch(self, url: str) -> ArticleContent:
-        self.chrome_launcher.open_url(url)
+        if not self._chrome_started:
+            self.chrome_launcher.open_url("about:blank")
+            self._chrome_started = True
         return self.page_reader.fetch(url)
 
 
@@ -127,14 +130,12 @@ class _ChromeDevtoolsPageReader:
                 self.cdp_url,
                 timeout=int(self.wait_seconds * 1000),
             )
-            page = self._find_open_page(browser, url)
-            if page is None:
-                page = browser.contexts[0].new_page()
-                page.goto(
-                    url,
-                    wait_until="domcontentloaded",
-                    timeout=int(self.wait_seconds * 1000),
-                )
+            page = self._open_page(browser)
+            page.goto(
+                url,
+                wait_until="domcontentloaded",
+                timeout=int(self.wait_seconds * 1000),
+            )
             try:
                 page.wait_for_load_state("networkidle", timeout=5000)
             except Exception:
@@ -143,15 +144,16 @@ class _ChromeDevtoolsPageReader:
         finally:
             playwright.stop()
 
-    def _find_open_page(self, browser, url: str):
+    def _open_page(self, browser):
         deadline = time.monotonic() + self.wait_seconds
         while time.monotonic() < deadline:
             for context in browser.contexts:
-                for page in reversed(context.pages):
-                    if _same_page_url(page.url, url):
-                        return page
+                if context.pages:
+                    return context.pages[-1]
             time.sleep(0.25)
-        return None
+        if browser.contexts:
+            return browser.contexts[0].new_page()
+        raise RuntimeError("No Chrome context available for article extraction")
 
 
 class BrowserArticleContentFetcher:
@@ -340,15 +342,6 @@ def _set_page_timeouts(page, timeout_ms: int) -> None:
             method(timeout_ms)
         except Exception:
             pass
-
-
-def _same_page_url(candidate_url: str, target_url: str) -> bool:
-    candidate = urlparse(candidate_url)
-    target = urlparse(target_url)
-    return (
-        candidate.hostname == target.hostname
-        and candidate.path.rstrip("/") == target.path.rstrip("/")
-    )
 
 
 def _default_article_chrome_launcher():

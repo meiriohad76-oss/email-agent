@@ -9,7 +9,6 @@ ARTICLE_CHROME_EXTRA_ARGS = (
     "--remote-debugging-port=9222",
     "--user-data-dir=data/user-chrome-profile",
     "--no-first-run",
-    "--new-window",
 )
 
 

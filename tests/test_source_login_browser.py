@@ -1,4 +1,7 @@
-from email_article_analyzer.source_login_browser import UserChromeLoginLauncher
+from email_article_analyzer.source_login_browser import (
+    ARTICLE_CHROME_EXTRA_ARGS,
+    UserChromeLoginLauncher,
+)
 
 
 def test_user_chrome_login_launcher_opens_url_with_regular_chrome_process():
@@ -44,3 +47,7 @@ def test_user_chrome_login_launcher_can_open_with_regular_chrome_debug_profile()
             "https://seekingalpha.com/article/1",
         ]
     ]
+
+
+def test_article_chrome_args_do_not_force_new_window_per_article():
+    assert "--new-window" not in ARTICLE_CHROME_EXTRA_ARGS

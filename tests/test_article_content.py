@@ -54,7 +54,7 @@ def test_article_content_fetcher_extracts_title_and_readable_text_from_html():
     assert "ignore()" not in content.extracted_text
 
 
-def test_user_chrome_article_content_fetcher_opens_regular_chrome_before_reading():
+def test_user_chrome_article_content_fetcher_starts_regular_chrome_before_reading():
     opened_urls = []
 
     class FakeChromeLauncher:
@@ -82,9 +82,45 @@ def test_user_chrome_article_content_fetcher_opens_regular_chrome_before_reading
 
     content = fetcher.fetch("https://seekingalpha.com/article/1")
 
-    assert opened_urls == ["https://seekingalpha.com/article/1"]
+    assert opened_urls == ["about:blank"]
     assert page_reader.calls == ["https://seekingalpha.com/article/1"]
     assert content.title == "Story title"
+
+
+def test_user_chrome_article_content_fetcher_starts_chrome_once_for_multiple_articles():
+    opened_urls = []
+
+    class FakeChromeLauncher:
+        def open_url(self, url):
+            opened_urls.append(url)
+
+    class FakePageReader:
+        def __init__(self):
+            self.calls = []
+
+        def fetch(self, url):
+            self.calls.append(url)
+            return ArticleContent(
+                final_url=url,
+                http_status=0,
+                title="Story title",
+                extracted_text="Authenticated article text.",
+            )
+
+    page_reader = FakePageReader()
+    fetcher = UserChromeArticleContentFetcher(
+        chrome_launcher=FakeChromeLauncher(),
+        page_reader=page_reader,
+    )
+
+    fetcher.fetch("https://seekingalpha.com/article/1")
+    fetcher.fetch("https://seekingalpha.com/article/2")
+
+    assert opened_urls == ["about:blank"]
+    assert page_reader.calls == [
+        "https://seekingalpha.com/article/1",
+        "https://seekingalpha.com/article/2",
+    ]
 
 
 class FakeLocator:
