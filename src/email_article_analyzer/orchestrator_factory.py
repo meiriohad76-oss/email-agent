@@ -12,7 +12,6 @@ from email_article_analyzer.auth import GMAIL_SCOPES
 from email_article_analyzer.article_analysis import OpenAIArticleAnalyzer
 from email_article_analyzer.article_content import (
     ArticleContentFetcher,
-    BrowserArticleContentFetcher,
     HybridArticleContentFetcher,
 )
 from email_article_analyzer.config import AppConfig
@@ -102,13 +101,10 @@ def _create_article_content_fetcher(
     http_fetcher = ArticleContentFetcher(
         http_client=http_client_cls(verify=verify if tls_verify else False)
     )
-    browser_fetcher = BrowserArticleContentFetcher(
-        browser_session=source_browser_session,
-    )
     return HybridArticleContentFetcher(
         http_fetcher=http_fetcher,
-        browser_fetcher=browser_fetcher,
-        browser_domains=("seekingalpha.com",),
+        browser_fetcher=http_fetcher,
+        browser_domains=(),
     )
 
 
