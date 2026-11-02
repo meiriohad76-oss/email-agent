@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Investment Research Dashboard</title>
+    <link rel="stylesheet" href="/static/research.css?v=20260809-11">
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="brand-block">
+        <a class="product-link" href="/">Email Article Analyzer</a>
+        <span class="header-divider"></span>
+        <strong class="product-name">Investment Research</strong>
+      </div>
+      <div class="header-actions">
+        <label class="run-label" for="run-select">Research run</label>
+        <select id="run-select" aria-label="Research run"></select>
+        <button id="weights-open" class="header-button" type="button" data-tooltip="Configure the generic and sector scoring models."><span class="button-icon" aria-hidden="true">&#9881;</span> Weights <span id="weights-state">Recommended</span></button>
+        <span class="status-chip" id="data-status">Loading</span>
+      </div>
+    </header>
+
+    <main class="research-shell">
+      <section class="page-intro">
+        <div>
+          <p class="eyebrow"><span class="live-dot"></span>3-5 year global equity screen | ILS base</p>
+          <h1>Research universe</h1>
+          <p class="method-note" id="method-note"></p>
+        </div>
+        <div class="freshness" id="freshness"></div>
+      </section>
+
+      <section class="kpi-strip" aria-label="Research summary">
+        <div class="kpi kpi-universe" tabindex="0" data-tooltip="All securities in the frozen research universe, including companies not yet extracted."><span class="kpi-label"><i aria-hidden="true">#</i>Universe</span><strong id="kpi-universe">--</strong><small>frozen candidates</small></div>
+        <div class="kpi kpi-extracted" tabindex="0" data-tooltip="Companies with at least one persisted source record. Extracted does not necessarily mean rank-ready."><span class="kpi-label"><i aria-hidden="true">&#10003;</i>Extracted</span><strong id="kpi-extracted">--</strong><small>with source records</small></div>
+        <div class="kpi kpi-ready" tabindex="0" data-tooltip="Companies with at least 70% sector-model coverage in a sector containing at least five eligible peers."><span class="kpi-label"><i aria-hidden="true">&#9650;</i>Model ready</span><strong id="kpi-ready">--</strong><small>sector model</small></div>
+        <div class="kpi kpi-coverage" tabindex="0" data-tooltip="Average generic factor-weight coverage among companies that have a score. Higher coverage means more of the model is supported by extracted evidence."><span class="kpi-label"><i aria-hidden="true">%</i>Avg coverage</span><strong id="kpi-coverage">--</strong><small>scored companies</small></div>
+        <div class="kpi kpi-alert" tabindex="0" data-tooltip="All source issues, including expected provider-coverage gaps, access blocks, parser gaps, and temporary outages. Many do not affect ranking."><span class="kpi-label"><i aria-hidden="true">!</i>Source issues</span><strong id="kpi-failures">--</strong><small>classified diagnostics</small></div>
+      </section>
+
+      <nav class="view-tabs" aria-label="Research views">
+        <button class="tab-button active" data-view="guide" type="button"><i aria-hidden="true">&#9654;</i>Walk me through</button>
+        <button class="tab-button" data-view="universe" type="button"><i aria-hidden="true">&#9638;</i>Universe</button>
+        <button class="tab-button" data-view="compare" type="button"><i aria-hidden="true">&#8644;</i>Compare <span id="compare-count">0</span></button>
+        <button class="tab-button" data-view="quality" type="button"><i aria-hidden="true">&#10003;</i>Data quality</button>
+      </nav>
+
+      <section id="guide-view" class="view-panel active">
+        <div class="guide-heading">
+          <p class="eyebrow">Guided review</p>
+          <h2>What this research says, one decision at a time</h2>
+        </div>
+        <div id="guide-content"></div>
+      </section>
+
+      <section id="universe-view" class="view-panel">
+        <div class="filter-bar">
+          <label class="search-field">
+            <span data-tooltip="Filter by ticker or company name.">Search</span>
+            <input id="search-input" type="search" placeholder="Ticker or company">
+          </label>
+          <label>
+            <span data-tooltip="Show only companies assigned to the selected research sector.">Sector</span>
+            <select id="sector-filter"><option value="">All sectors</option></select>
+          </label>
+          <label>
+            <span data-tooltip="Rank ready has sufficient scoring evidence; Partial has some data but insufficient coverage; Not extracted has no source records.">Status</span>
+            <select id="status-filter">
+              <option value="">All statuses</option>
+              <option value="rank_ready">Rank ready</option>
+              <option value="partial">Partial</option>
+              <option value="pending">Not extracted</option>
+            </select>
+          </label>
+          <label>
+            <span data-tooltip="Require at least this share of the generic model's weighted factors to have usable evidence.">Minimum coverage</span>
+            <select id="coverage-filter">
+              <option value="0">Any</option>
+              <option value="0.5">50%</option>
+              <option value="0.7">70%</option>
+              <option value="0.9">90%</option>
+            </select>
+          </label>
+          <button id="clear-filters" class="quiet-button" type="button" data-tooltip="Reset all universe filters."><span class="button-icon" aria-hidden="true">&#10005;</span> Clear</button>
+          <button id="export-csv" class="quiet-button" type="button" data-tooltip="Download the currently filtered universe with scores, ranks, coverage, and factor values."><span class="button-icon" aria-hidden="true">&#8595;</span> Export CSV</button>
+        </div>
+
+        <div class="bulk-extraction-bar" aria-live="polite">
+          <button id="bulk-extract-start" class="primary-action" type="button" data-tooltip="Extract every company with no source records, one at a time. Progress is checkpointed after each company and can be resumed."><span class="button-icon" aria-hidden="true">&#9654;</span> Complete all unextracted</button>
+          <button id="bulk-extract-stop" class="quiet-button" type="button" data-tooltip="Request a safe stop after the company currently being extracted finishes." hidden>Stop after current</button>
+          <span id="bulk-extract-status">Checking extraction backlog...</span>
+        </div>
+
+        <div class="workspace-grid">
+          <section class="table-region" aria-label="Research universe table">
+            <div class="table-meta">
+              <span id="visible-count"></span>
+              <span class="score-legend"><i class="legend-dot strong"></i>75+ strong <i class="legend-dot positive"></i>60-74 positive <i class="legend-dot neutral"></i>45-59 neutral <i class="legend-dot weak"></i>&lt;45 weak</span>
+            </div>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th class="pin-column" aria-label="Compare" data-tooltip="Pin up to six companies for side-by-side comparison."></th>
+                    <th><button data-sort="generic_rank" type="button" data-tooltip="Overall cross-sector rank from the generic factor model. Use primarily as a broad diagnostic, not a direct cross-sector recommendation.">Generic rank</button></th>
+                    <th><button data-sort="sector_model_rank" type="button" data-tooltip="Rank within the company's sector using provisional sector-specific weights. The denominator is the eligible sector cohort.">Model rank</button></th>
+                    <th><button data-sort="ticker" type="button" data-tooltip="Tradable ticker and issuer name. The universe prioritizes active New York listings and ADRs.">Company</button></th>
+                    <th><button data-sort="sector" type="button" data-tooltip="Research sector used to select model weights and the peer-ranking cohort.">Sector</button></th>
+                    <th class="numeric"><button data-sort="sector_model_score" type="button" data-tooltip="Provisional 0-100 score calculated with sector-specific factor weights. Missing factors are reweighted only when model coverage is sufficient.">Model</button></th>
+                    <th class="numeric"><button data-sort="composite_score" type="button" data-tooltip="Generic 0-100 evidence score using the same weights for every sector.">Generic</button></th>
+                    <th><button data-sort="score_coverage" type="button" data-tooltip="Share of generic model weight supported by usable evidence. Generic rank also requires six sufficiently populated categories.">Coverage</button></th>
+                    <th><button data-sort="research_status" type="button" data-tooltip="Rank ready: sufficient evidence. Partial: some records but insufficient coverage. Not extracted: no records yet.">Status</button></th>
+                    <th><button data-sort="freshest_at" type="button" data-tooltip="Date of the newest persisted source record for this company.">Freshness</button></th>
+                  </tr>
+                </thead>
+                <tbody id="company-table-body"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <aside class="detail-pane" id="detail-pane" aria-live="polite">
+            <div class="empty-detail">
+              <strong>Select a company</strong>
+              <p>Scores, source evidence, and extraction diagnostics will appear here.</p>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section id="compare-view" class="view-panel">
+        <div class="section-heading">
+          <div><h2>Company comparison</h2><p>Up to six companies. Empty cells remain explicitly unavailable.</p></div>
+          <button id="clear-compare" class="quiet-button" type="button">Clear selection</button>
+        </div>
+        <div id="compare-content" class="compare-content"></div>
+      </section>
+
+      <section id="quality-view" class="view-panel">
+        <div class="section-heading">
+          <div><h2>Data quality</h2><p>What was captured, what providers do not cover, and what can be retried.</p></div>
+          <div class="quality-actions">
+            <span id="quality-action-state" class="quality-action-state" aria-live="polite"></span>
+            <button id="retry-source-issues" class="primary-action" type="button">Retry parser or temporary issues</button>
+            <button id="retry-access-blocked" class="quiet-button" type="button">Retry access-blocked pages</button>
+          </div>
+        </div>
+        <div id="quality-summary" class="quality-grid"></div>
+        <div class="quality-layout">
+          <section><h3>Sector progress</h3><div id="sector-progress"></div></section>
+          <section><h3>Source issues</h3><div id="failure-list"></div></section>
+        </div>
+      </section>
+    </main>
+    <dialog id="weights-dialog" class="weights-dialog">
+      <form method="dialog" class="weights-form">
+        <div class="weights-header">
+          <div>
+            <p class="eyebrow">Research model</p>
+            <h2>Scoring weights</h2>
+          </div>
+          <button id="weights-close" class="icon-button" type="button" aria-label="Close weight editor" title="Close">&times;</button>
+        </div>
+        <div class="weights-toolbar">
+          <label for="weights-model">Model</label>
+          <select id="weights-model"></select>
+          <span id="weights-total" class="weights-total">Total 100%</span>
+        </div>
+        <div id="weights-fields" class="weights-fields"></div>
+        <p id="weights-error" class="weights-error" role="alert"></p>
+        <div class="weights-footer">
+          <button id="weights-reset" class="quiet-button" type="button">Use recommended</button>
+          <span class="weights-spacer"></span>
+          <button id="weights-cancel" class="quiet-button" type="button">Cancel</button>
+          <button id="weights-apply" class="primary-action" type="button">Apply weights</button>
+        </div>
+      </form>
+    </dialog>
+    <script src="/static/research.js?v=20260810-13"></script>
+  </body>
+</html>

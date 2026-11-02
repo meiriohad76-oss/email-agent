@@ -1,4 +1,4 @@
-import base64
+﻿import base64
 
 from email_article_analyzer.link_extraction import extract_headline_link
 from email_article_analyzer.sources import TRUSTED_SOURCES

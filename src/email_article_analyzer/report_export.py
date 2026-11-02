@@ -1,4 +1,5 @@
 from collections import defaultdict
+import json
 from typing import Any
 
 
@@ -49,6 +50,7 @@ def build_run_markdown_report(
         article for article in articles if _has_quality_issue(article)
     ]
     conflict_lines = _build_conflict_lines(analyzed_articles)
+    run_synthesis = _run_synthesis(events)
 
     lines = [
         f"# Daily Stock Article Intelligence - Run #{run['id']}",
@@ -68,13 +70,13 @@ def build_run_markdown_report(
             f"sell-watch/risk alerts: {len(sell_watch_articles)}; "
             f"quality issues: {len(low_quality_articles)}."
         ),
-        (
-            f"- Models: extraction {_value(run.get('extraction_model'))}; "
-            f"summary {_value(run.get('summary_model'))}."
-        ),
+        f"- Article analysis model: {_value(run.get('summary_model'))}.",
         "",
         "## Key Findings",
     ]
+    if run_synthesis:
+        lines.extend(["", "## Run-Level Synthesis"])
+        lines.extend(_run_synthesis_lines(run_synthesis))
     lines.extend(_section_or_empty(_article_lines(portfolio_articles[:5]), "No portfolio-linked articles were analyzed."))
     lines.extend(["", "## Portfolio Impact"])
     lines.extend(_section_or_empty(_article_lines(portfolio_articles), "No analyzed article mentioned a current portfolio ticker."))
@@ -131,6 +133,9 @@ def _article_lines(articles: list[dict[str, Any]]) -> list[str]:
         actionable = _format_actionable_data(analysis.get("actionable_data") or [])
         if actionable:
             lines.append(f"  - Actionable data: {actionable}")
+        signals = _format_actionable_signals(analysis.get("actionable_signals") or [])
+        if signals:
+            lines.append(f"  - Actionable signals: {signals}")
         evidence = (analysis.get("supporting_evidence") or [])[:2]
         if evidence:
             lines.append(
@@ -139,6 +144,52 @@ def _article_lines(articles: list[dict[str, Any]]) -> list[str]:
             )
         if article.get("normalized_url"):
             lines.append(f"  - Link: {article['normalized_url']}")
+    return lines
+
+
+def _run_synthesis(events: list[dict[str, Any]]) -> dict[str, Any] | None:
+    for event in reversed(events):
+        if event.get("event_type") != "run_report_synthesized":
+            continue
+        details = event.get("details")
+        if isinstance(details, dict):
+            return details
+        details_json = event.get("details_json")
+        if not details_json:
+            return None
+        try:
+            parsed = json.loads(details_json)
+        except (TypeError, json.JSONDecodeError):
+            return None
+        return parsed if isinstance(parsed, dict) else None
+    return None
+
+
+def _run_synthesis_lines(synthesis: dict[str, Any]) -> list[str]:
+    lines = [
+        f"- Model: {_value(synthesis.get('model'))}",
+        f"- Summary: {_escape_markdown(_value(synthesis.get('executive_summary')))}",
+    ]
+    priority_tickers = synthesis.get("priority_tickers") or []
+    if priority_tickers:
+        lines.append("- Priority tickers:")
+        for item in priority_tickers:
+            evidence = "; ".join(str(value) for value in (item.get("evidence") or [])[:2])
+            lines.append(
+                f"  - {item.get('ticker')}: {item.get('priority')} - {item.get('reason')}"
+                + (f" Evidence: {evidence}" if evidence else "")
+            )
+    contradictions = synthesis.get("contradictions") or []
+    if contradictions:
+        lines.append("- Contradictions:")
+        for item in contradictions:
+            lines.append(
+                f"  - {item.get('ticker')}: {item.get('issue')} - {item.get('why_it_matters')}"
+            )
+    actions = synthesis.get("recommended_actions") or []
+    if actions:
+        lines.append("- Recommended actions:")
+        lines.extend(f"  - {action}" for action in actions)
     return lines
 
 
@@ -317,6 +368,29 @@ def _format_actionable_data(items: list[Any]) -> str:
             parts.append(f"risks {', '.join(map(str, risks))}")
         if details:
             parts.append(f"details {', '.join(map(str, details))}")
+        formatted.append("; ".join(parts))
+    return " | ".join(formatted)
+
+
+def _format_actionable_signals(items: list[Any]) -> str:
+    formatted = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        parts = [
+            _value(item.get("ticker"), "Ticker"),
+            _value(item.get("signal_type")).replace("_", " "),
+            _value(item.get("signal")),
+        ]
+        value = str(item.get("value") or "").strip()
+        direction = str(item.get("direction") or "").strip()
+        timeframe = str(item.get("timeframe") or "").strip()
+        if value:
+            parts.append(value)
+        if direction and direction != "unclear":
+            parts.append(direction)
+        if timeframe and timeframe != "unclear":
+            parts.append(timeframe)
         formatted.append("; ".join(parts))
     return " | ".join(formatted)
 

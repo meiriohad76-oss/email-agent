@@ -1,4 +1,4 @@
-from email_article_analyzer.db import initialize_database
+﻿from email_article_analyzer.db import initialize_database
 from email_article_analyzer.repositories import (
     GmailDiscoveryRepository,
     RunRepository,
@@ -37,6 +37,180 @@ def test_gmail_repository_saves_message_and_article_link(tmp_path):
     assert message["gmail_message_id"] == "msg-1"
     assert message["labels_json"] == '["UNREAD"]'
     assert link["detection_method"] == "headline_anchor"
+
+
+def test_gmail_repository_updates_latest_message_status_by_gmail_id(tmp_path):
+    db_path = str(tmp_path / "app.db")
+    initialize_database(db_path)
+    repo = GmailDiscoveryRepository(db_path)
+    run_repo = RunRepository(db_path)
+    first_run_id = run_repo.create_run("gpt-extract", "gpt-summary")
+    run_repo.complete_run(first_run_id)
+    second_run_id = run_repo.create_run("gpt-extract", "gpt-summary")
+    first_row_id = repo.save_message(
+        run_id=first_run_id,
+        gmail_message_id="msg-1",
+        thread_id="thread-1",
+        sender="alerts@seekingalpha.com",
+        subject="Story",
+        labels=["UNREAD"],
+        source_key="seeking_alpha",
+        processing_status="discovered",
+    )
+    second_row_id = repo.save_message(
+        run_id=second_run_id,
+        gmail_message_id="msg-1",
+        thread_id="thread-1",
+        sender="alerts@seekingalpha.com",
+        subject="Story again",
+        labels=["UNREAD"],
+        source_key="seeking_alpha",
+        processing_status="discovered",
+    )
+
+    updated = repo.update_message_status_by_gmail_id(
+        gmail_message_id="msg-1",
+        processing_status="analyzed_gmail_mark_pending",
+        failure_reason="Gmail success marker timed out",
+    )
+
+    assert updated == 1
+    assert repo.get_message(first_row_id)["processing_status"] == "discovered"
+    latest = repo.get_message(second_row_id)
+    assert latest["processing_status"] == "analyzed_gmail_mark_pending"
+    assert latest["failure_reason"] == "Gmail success marker timed out"
+
+
+def test_gmail_repository_lists_pending_gmail_mark_messages_for_run(tmp_path):
+    db_path = str(tmp_path / "app.db")
+    initialize_database(db_path)
+    repo = GmailDiscoveryRepository(db_path)
+    run_repo = RunRepository(db_path)
+    run_id = run_repo.create_run("gpt-extract", "gpt-summary")
+    run_repo.complete_run(run_id)
+    other_run_id = run_repo.create_run("gpt-extract", "gpt-summary")
+    pending_id = repo.save_message(
+        run_id=run_id,
+        gmail_message_id="msg-success-pending",
+        thread_id="thread-1",
+        sender="alerts@seekingalpha.com",
+        subject="Story",
+        labels=["UNREAD"],
+        source_key="seeking_alpha",
+        processing_status="analyzed_gmail_mark_pending",
+    )
+    repo.save_message(
+        run_id=run_id,
+        gmail_message_id="msg-ready",
+        thread_id="thread-2",
+        sender="alerts@seekingalpha.com",
+        subject="Ready",
+        labels=["UNREAD"],
+        source_key="seeking_alpha",
+        processing_status="analyzed",
+    )
+    failed_pending_id = repo.save_message(
+        run_id=run_id,
+        gmail_message_id="msg-failed-pending",
+        thread_id="thread-3",
+        sender="alerts@seekingalpha.com",
+        subject="Failed",
+        labels=["UNREAD"],
+        source_key="seeking_alpha",
+        processing_status="failed_gmail_mark_pending",
+    )
+    repo.save_message(
+        run_id=other_run_id,
+        gmail_message_id="msg-other",
+        thread_id="thread-4",
+        sender="alerts@seekingalpha.com",
+        subject="Other",
+        labels=["UNREAD"],
+        source_key="seeking_alpha",
+        processing_status="analyzed_gmail_mark_pending",
+    )
+
+    pending = repo.list_pending_gmail_mark_messages(run_id)
+
+    assert pending == [
+        {
+            "id": pending_id,
+            "gmail_message_id": "msg-success-pending",
+            "processing_status": "analyzed_gmail_mark_pending",
+        },
+        {
+            "id": failed_pending_id,
+            "gmail_message_id": "msg-failed-pending",
+            "processing_status": "failed_gmail_mark_pending",
+        },
+    ]
+
+
+def test_gmail_repository_updates_message_status_by_row_id(tmp_path):
+    db_path = str(tmp_path / "app.db")
+    initialize_database(db_path)
+    repo = GmailDiscoveryRepository(db_path)
+    row_id = repo.save_message(
+        run_id=None,
+        gmail_message_id="msg-1",
+        thread_id="thread-1",
+        sender="alerts@seekingalpha.com",
+        subject="Story",
+        labels=["UNREAD"],
+        source_key="seeking_alpha",
+        processing_status="analyzed_gmail_mark_pending",
+    )
+
+    updated = repo.update_message_status(
+        row_id=row_id,
+        processing_status="analyzed",
+        failure_reason=None,
+    )
+
+    assert updated == 1
+    assert repo.get_message(row_id)["processing_status"] == "analyzed"
+
+
+def test_run_repository_upserts_ticker_enrichment_snapshots(tmp_path):
+    db_path = str(tmp_path / "app.db")
+    initialize_database(db_path)
+    repo = RunRepository(db_path)
+    run_id = repo.create_run("gpt-extract", "gpt-summary")
+
+    first_id = repo.save_ticker_enrichment(
+        run_id=run_id,
+        ticker="aapl",
+        provider="polygon",
+        data_type="previous_close",
+        data={"last_close": 200.0},
+    )
+    second_id = repo.save_ticker_enrichment(
+        run_id=run_id,
+        ticker="AAPL",
+        provider="polygon",
+        data_type="previous_close",
+        data={"last_close": 205.5, "source": "polygon_previous_close"},
+        source_url="https://api.polygon.io/v2/aggs/ticker/AAPL/prev",
+    )
+
+    enrichments = repo.list_ticker_enrichments(run_id)
+
+    assert second_id == first_id
+    assert enrichments == [
+        {
+            "id": first_id,
+            "run_id": run_id,
+            "ticker": "AAPL",
+            "provider": "polygon",
+            "data_type": "previous_close",
+            "data": {"last_close": 205.5, "source": "polygon_previous_close"},
+            "source_url": "https://api.polygon.io/v2/aggs/ticker/AAPL/prev",
+            "status": "ready",
+            "failure_reason": None,
+            "created_at": enrichments[0]["created_at"],
+            "updated_at": enrichments[0]["updated_at"],
+        }
+    ]
 
 
 def test_gmail_repository_saves_article_analysis(tmp_path):
@@ -289,16 +463,38 @@ def test_list_discovered_articles_marks_mentioned_tickers_in_active_watchlist(tm
                     "evidence": ["Evidence"],
                 }
             ],
+            "actionable_signals": [
+                {
+                    "ticker": "AAPL",
+                    "signal_type": "valuation",
+                    "signal": "Price target raised",
+                    "value": "$250",
+                    "direction": "positive",
+                    "timeframe": "12 months",
+                    "source_text": "$250 target",
+                }
+            ],
         },
     )
 
     articles = RunRepository(db_path).list_discovered_articles(run_id=run_id)
 
     assert articles[0]["analysis"]["mentioned_ticker_details"] == [
-        {"ticker": "AAPL", "in_portfolio": True},
+        {
+            "ticker": "AAPL",
+            "in_portfolio": True,
+            "company_name": "Apple",
+            "sector": None,
+            "priority": None,
+            "notes": None,
+            "polygon_reference": {},
+            "asset_type": None,
+        },
         {"ticker": "MSFT", "in_portfolio": False},
     ]
     assert articles[0]["analysis"]["sentiment"] == "bullish"
     assert articles[0]["analysis"]["recommendation"] == "buy"
     assert articles[0]["analysis"]["price_targets"][0]["target_price"] == 250
+    assert articles[0]["analysis"]["rating_snapshots"] == []
     assert articles[0]["analysis"]["actionable_data"][0]["catalysts"] == ["Services growth"]
+    assert articles[0]["analysis"]["actionable_signals"][0]["signal_type"] == "valuation"

@@ -1,4 +1,6 @@
 const formatJson = (value) => JSON.stringify(value, null, 2);
+let latestProviderStatusPayload = { providers: {} };
+let browserBridgeConnected = false;
 
 function formatApiError(payload) {
   if (typeof payload.detail === "string") {
@@ -57,6 +59,7 @@ function renderProviderStatus(payload) {
 }
 
 function updateRunStartAvailability(payload) {
+  latestProviderStatusPayload = payload;
   const providers = payload.providers || {};
   const essentialProviderKeys = ["openai", "gmail"];
   const missingEssentialProviders = essentialProviderKeys.filter(
@@ -64,6 +67,12 @@ function updateRunStartAvailability(payload) {
   );
   const startButton = document.getElementById("start-run-button");
   const message = document.getElementById("run-readiness-message");
+  if (!browserBridgeConnected) {
+    startButton.disabled = true;
+    message.textContent = "Start disabled until the Chrome bridge extension is connected.";
+    message.classList.add("error-text");
+    return;
+  }
   if (!missingEssentialProviders.length) {
     startButton.disabled = false;
     message.textContent = "Essential providers are ready.";
@@ -90,18 +99,42 @@ async function refreshProviderStatus() {
   }
 }
 
-async function openSourceLoginBrowser() {
-  writeResult("run-start-result", "Opening Seeking Alpha and Zacks in Chrome...");
+async function refreshBrowserBridgeStatus() {
+  const status = document.getElementById("browser-bridge-status");
   try {
-    const payload = await fetchJson("/api/source-logins/open", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ source: "all" }),
-    });
-    writeResult("run-start-result", payload);
+    const payload = await fetchJson("/api/browser-tasks/status");
+    browserBridgeConnected = payload.status === "connected";
+    status.textContent = browserBridgeConnected
+      ? "Chrome bridge connected."
+      : "Chrome bridge not connected. Install/enable the local Chrome extension before running analysis.";
+    status.classList.toggle("error-text", !browserBridgeConnected);
   } catch (error) {
-    writeResult("run-start-result", error.message);
+    browserBridgeConnected = false;
+    status.textContent = `Chrome bridge unavailable: ${error.message}`;
+    status.classList.add("error-text");
   }
+  updateRunStartAvailability(latestProviderStatusPayload);
+}
+
+function openSourceLogin(source, url) {
+  let tab = null;
+  try {
+    tab = window.open("about:blank", "_blank");
+    if (tab) {
+      tab.location.href = url;
+      tab.focus();
+    }
+  } catch {
+    tab = null;
+  }
+  writeResult("run-start-result", {
+    status: tab ? "opened" : "blocked",
+    opened_source: source,
+    url,
+    next: tab
+      ? "Login tab opened."
+      : `Chrome blocked the popup. Copy/open this URL manually: ${url}`,
+  });
 }
 
 async function confirmSourceLogins() {
@@ -110,7 +143,7 @@ async function confirmSourceLogins() {
     const payload = await fetchJson("/api/source-logins/confirm", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sources: ["seeking_alpha", "zacks"] }),
+      body: JSON.stringify({ sources: ["seeking_alpha", "zacks", "investing"] }),
     });
     writeResult("run-start-result", payload);
     await refreshProviderStatus();
@@ -142,6 +175,103 @@ function exportRunReport() {
   window.location.href = `/api/runs/${runId}/report.pdf`;
 }
 
+async function retryRunEnrichments() {
+  const runId = document.getElementById("run-id").value;
+  if (!runId) {
+    setRunDetailStatus("Enter or load a run before retrying enrichments.", true);
+    return;
+  }
+  setRunDetailStatus(`Retrying ticker enrichments for run #${runId}...`);
+  try {
+    const payload = await fetchJson(`/api/runs/${runId}/retry-enrichments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    writeResult("run-start-result", payload);
+    await loadRunDetail(runId, `Retried enrichments for run #${runId}.`);
+  } catch (error) {
+    setRunDetailStatus(error.message, true);
+    writeResult("run-start-result", error.message);
+  }
+}
+
+async function retryGmailMarks() {
+  const runId = document.getElementById("run-id").value;
+  if (!runId) {
+    setRunDetailStatus("Enter or load a run before retrying Gmail marks.", true);
+    return;
+  }
+  setRunDetailStatus(`Retrying Gmail marks for run #${runId}...`);
+  try {
+    const payload = await fetchJson(`/api/runs/${runId}/retry-gmail-marks`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    writeResult("run-start-result", payload);
+    await loadRunDetail(
+      runId,
+      `Retried Gmail marks for run #${runId}: ${payload.repaired} repaired, ${payload.failed} failed.`,
+    );
+  } catch (error) {
+    setRunDetailStatus(error.message, true);
+    writeResult("run-start-result", error.message);
+  }
+}
+
+async function deleteRun(runId) {
+  const confirmed = window.confirm(
+    `Delete run #${runId}? This will mark its Gmail messages unread, remove analysis labels, and delete this run's database records.`,
+  );
+  if (!confirmed) {
+    return;
+  }
+  setRunDetailStatus(`Deleting run #${runId}...`);
+  try {
+    const payload = await fetchJson(`/api/runs/${runId}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+    });
+    writeResult("run-start-result", payload);
+    if (document.getElementById("run-id").value === String(runId)) {
+      document.getElementById("run-id").value = "";
+      document.getElementById("run-detail-summary").replaceChildren();
+      document.getElementById("source-login-warning-list").replaceChildren();
+      document.getElementById("run-enrichment-list").replaceChildren();
+      document.getElementById("run-article-list").replaceChildren();
+      document.getElementById("run-event-timeline").replaceChildren();
+    }
+    setRunDetailStatus(`Deleted run #${runId}.`);
+    await refreshRecentRuns();
+  } catch (error) {
+    setRunDetailStatus(error.message, true);
+    writeResult("run-start-result", error.message);
+  }
+}
+
+async function forceStopRun(runId) {
+  const confirmed = window.confirm(
+    `Mark run #${runId} as stopped? Use this only when the run is stale and no browser or worker is still progressing.`,
+  );
+  if (!confirmed) {
+    return;
+  }
+  setRunDetailStatus(`Marking run #${runId} stopped...`);
+  try {
+    const payload = await fetchJson(`/api/runs/${runId}/force-stop`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    writeResult("run-start-result", payload);
+    await refreshRecentRuns();
+    if (document.getElementById("run-id").value === String(runId)) {
+      await loadRunDetail(runId, `Marked run #${runId} stopped.`);
+    }
+  } catch (error) {
+    setRunDetailStatus(error.message, true);
+    writeResult("run-start-result", error.message);
+  }
+}
+
 function setRunDetailStatus(message, isError = false) {
   const status = document.getElementById("run-detail-status");
   status.textContent = message;
@@ -158,6 +288,10 @@ function metricCard(label, value) {
   cardValue.textContent = value ?? "-";
   card.append(cardLabel, cardValue);
   return card;
+}
+
+function formatRunTimestamp(value) {
+  return value || "-";
 }
 
 function formatContentStatus(status) {
@@ -181,6 +315,25 @@ function renderSourceLoginWarnings(events) {
     const item = document.createElement("div");
     item.className = "warning-item";
     item.textContent = event.message;
+    list.append(item);
+  });
+}
+
+function renderRunAlerts(alerts) {
+  const list = document.getElementById("source-login-warning-list");
+  (alerts || []).forEach((alert) => {
+    const item = document.createElement("div");
+    item.className = `warning-item run-alert ${alert.severity || "warning"}`;
+    const title = document.createElement("strong");
+    title.textContent = alert.title || "Run alert";
+    const message = document.createElement("div");
+    message.textContent = alert.message || "";
+    item.append(title, message);
+    if (alert.next) {
+      const next = document.createElement("small");
+      next.textContent = alert.next;
+      item.append(next);
+    }
     list.append(item);
   });
 }
@@ -341,6 +494,137 @@ function renderArticleRows(articles) {
   });
 }
 
+function renderTickerEnrichments(enrichments) {
+  const list = document.getElementById("run-enrichment-list");
+  list.replaceChildren();
+  const heading = document.createElement("h3");
+  heading.textContent = "Ticker enrichments";
+  list.append(heading);
+  if (!enrichments.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty-state";
+    empty.textContent = "No Polygon, Seeking Alpha, Zacks, or InvestingPro enrichment snapshots recorded for this run.";
+    list.append(empty);
+    return;
+  }
+  const polygonLastCloseByTicker = new Map();
+  enrichments.forEach((enrichment) => {
+    const data = enrichment.data || {};
+    if (
+      enrichment.provider === "polygon" &&
+      enrichment.data_type === "previous_close" &&
+      data.last_close !== undefined &&
+      data.last_close !== null
+    ) {
+      polygonLastCloseByTicker.set(enrichment.ticker, Number(data.last_close));
+    }
+  });
+  enrichments.forEach((enrichment) => {
+    const row = document.createElement("div");
+    row.className = `enrichment-row ${enrichment.status || "unknown"}`;
+
+    const title = document.createElement("div");
+    title.className = "enrichment-title";
+    title.textContent = [
+      enrichment.ticker,
+      enrichment.provider,
+      enrichment.data_type,
+      enrichment.status,
+    ].filter(Boolean).join(" - ");
+
+    const value = document.createElement("div");
+    value.className = "enrichment-value";
+    value.textContent = formatTickerEnrichment(enrichment, polygonLastCloseByTicker);
+
+    row.append(title, value);
+    if (enrichment.source_url) {
+      const link = document.createElement("a");
+      link.href = enrichment.source_url;
+      link.target = "_blank";
+      link.rel = "noreferrer";
+      link.textContent = enrichment.source_url;
+      row.append(link);
+    }
+    list.append(row);
+  });
+}
+
+function formatTickerEnrichment(enrichment, polygonLastCloseByTicker = new Map()) {
+  if (enrichment.status === "failed") {
+    return `Failed: ${enrichment.failure_reason || "unknown error"}`;
+  }
+  const data = enrichment.data || {};
+  if (data.last_close !== undefined && data.last_close !== null) {
+    return `Last close: ${data.last_close}`;
+  }
+  if (data.rating_type) {
+    const parts = [
+      data.rating ? `Rating: ${data.rating}` : null,
+      data.score !== undefined && data.score !== null ? `Score: ${data.score}` : null,
+      data.price_target !== undefined && data.price_target !== null
+        ? formatTargetWithPolygonBaseline(enrichment.ticker, data, polygonLastCloseByTicker)
+        : null,
+      data.source_text ? `Evidence: ${data.source_text}` : null,
+    ];
+    return parts.filter(Boolean).join(" | ") || "Ready";
+  }
+  if (enrichment.provider === "investing_pro") {
+    return formatInvestingProEnrichment(data);
+  }
+  return JSON.stringify(data);
+}
+
+function formatInvestingProEnrichment(data) {
+  const parts = [];
+  if (data.rating) {
+    parts.push(`Rating: ${data.rating}`);
+  }
+  if (data.financial_health) {
+    parts.push(`Health: ${data.financial_health}`);
+  }
+  if (data.fair_value !== undefined && data.fair_value !== null) {
+    parts.push(`Fair value: ${data.fair_value}`);
+  }
+  if (data.fair_value_upside_pct !== undefined && data.fair_value_upside_pct !== null) {
+    parts.push(`Fair value upside: ${Number(data.fair_value_upside_pct).toFixed(1)}%`);
+  } else if (data.fair_value_upside) {
+    parts.push(`Fair value upside: ${data.fair_value_upside}`);
+  }
+  if (data.analyst_target_average !== undefined && data.analyst_target_average !== null) {
+    parts.push(`Analyst target avg: ${data.analyst_target_average}`);
+  } else if (data.analyst_price_target) {
+    parts.push(`Analyst target: ${data.analyst_price_target}`);
+  }
+  if (data.rating_count !== undefined && data.rating_count !== null) {
+    parts.push(`Ratings: ${data.rating_count}`);
+  }
+  if (data.metrics) {
+    ["P/E Ratio", "Revenue", "EPS", "Beta"].forEach((label) => {
+      if (data.metrics[label] !== undefined && data.metrics[label] !== null) {
+        parts.push(`${label}: ${data.metrics[label]}`);
+      }
+    });
+  }
+  return parts.length ? parts.join(" | ") : JSON.stringify(data);
+}
+
+function formatTargetWithPolygonBaseline(ticker, data, polygonLastCloseByTicker) {
+  const currency = data.currency || "USD";
+  const target = Number(data.price_target);
+  const parts = [`Target: ${currency} ${data.price_target}`];
+  const lastClose = polygonLastCloseByTicker.get(ticker);
+  if (Number.isFinite(target) && Number.isFinite(lastClose) && lastClose !== 0) {
+    const normalizedUpside = ((target - lastClose) / lastClose) * 100;
+    parts.push(`Polygon upside: ${normalizedUpside >= 0 ? "+" : ""}${normalizedUpside.toFixed(1)}%`);
+  } else {
+    parts.push("Polygon upside: needs Polygon close");
+  }
+  if (data.source_reported_upside_pct !== undefined && data.source_reported_upside_pct !== null) {
+    parts.push(`Source upside: ${Number(data.source_reported_upside_pct).toFixed(2)}%`);
+  }
+  return parts.join(" | ");
+}
+
 function actionableLine(label, value) {
   const line = document.createElement("div");
   line.className = "article-actionable-line";
@@ -361,25 +645,50 @@ function renderRunDetail(payload) {
   const run = payload.run;
   const counts = payload.counts || {};
   const events = payload.events || [];
+  const alerts = payload.alerts || [];
   const articles = payload.articles || [];
+  const enrichments = payload.ticker_enrichments || [];
   const summary = document.getElementById("run-detail-summary");
   summary.replaceChildren(
     metricCard("Run", `#${run.id}`),
     metricCard("Status", run.status),
+    metricCard("Started", formatRunTimestamp(run.started_at)),
+    metricCard("Completed", formatRunTimestamp(run.completed_at)),
     metricCard("Emails", counts.gmail_messages ?? 0),
     metricCard("Links", counts.article_links ?? 0),
-    metricCard("Extraction model", run.extraction_model),
-    metricCard("Summary model", run.summary_model),
+    metricCard("Precheck model", run.extraction_model),
+    metricCard("Article analysis model", run.summary_model),
+    metricCard("Report synthesis model", "gpt-5.6-sol"),
   );
   renderSourceLoginWarnings(events);
+  renderRunAlerts(alerts);
+  renderTickerEnrichments(enrichments);
   renderArticleRows(articles);
   renderEventTimeline(events);
-  setRunDetailStatus(`Loaded run #${run.id}`);
+  setRunDetailStatus(
+    alerts.length ? `${alerts[0].title}: ${alerts[0].next || alerts[0].message}` : `Loaded run #${run.id}`,
+    alerts.length,
+  );
 }
 
-function renderRecentRuns(runs) {
+function renderRecentRuns(runs, alerts = []) {
   const list = document.getElementById("recent-runs-list");
   list.replaceChildren();
+  (alerts || []).forEach((alert) => {
+    const item = document.createElement("div");
+    item.className = `warning-item run-alert ${alert.severity || "warning"}`;
+    const title = document.createElement("strong");
+    title.textContent = alert.title || "Run alert";
+    const message = document.createElement("div");
+    message.textContent = alert.message || "";
+    item.append(title, message);
+    if (alert.next) {
+      const next = document.createElement("small");
+      next.textContent = alert.next;
+      item.append(next);
+    }
+    list.append(item);
+  });
   if (!runs.length) {
     const empty = document.createElement("p");
     empty.className = "empty-state";
@@ -388,27 +697,63 @@ function renderRecentRuns(runs) {
     return;
   }
   runs.forEach((run) => {
-    const row = document.createElement("button");
+    const row = document.createElement("div");
     row.className = "run-row";
-    row.type = "button";
+    row.role = "button";
+    row.tabIndex = 0;
     row.dataset.runId = run.id;
 
     const messages = run.counts?.gmail_messages ?? 0;
     const links = run.counts?.article_links ?? 0;
+    const main = document.createElement("div");
+    main.className = "run-row-main";
     [
       ["run-id", `#${run.id}`],
       ["run-status", run.status],
+      ["", `Started ${formatRunTimestamp(run.started_at)}`],
+      ["", `Completed ${formatRunTimestamp(run.completed_at)}`],
       ["", `${messages} emails`],
       ["", `${links} links`],
-      ["", run.started_at],
+      ["", `Precheck ${run.extraction_model || "-"}`],
+      ["", `Analysis ${run.summary_model || "-"}`],
     ].forEach(([className, text]) => {
       const cell = document.createElement("span");
       cell.textContent = text;
       if (className) {
         cell.className = className;
       }
-      row.append(cell);
+      main.append(cell);
     });
+    (run.alerts || []).forEach((alert) => {
+      const cell = document.createElement("span");
+      cell.className = `run-alert-chip ${alert.severity || "warning"}`;
+      cell.textContent = alert.title || "Run alert";
+      main.append(cell);
+    });
+
+    const actions = document.createElement("div");
+    actions.className = "run-row-actions";
+    const pdfButton = document.createElement("button");
+    pdfButton.type = "button";
+    pdfButton.className = "secondary-button compact-button";
+    pdfButton.textContent = "PDF";
+    pdfButton.setAttribute("data-run-pdf-id", run.id);
+    if (run.status === "running") {
+      const forceStopButton = document.createElement("button");
+      forceStopButton.type = "button";
+      forceStopButton.className = "secondary-button compact-button";
+      forceStopButton.textContent = "Mark stopped";
+      forceStopButton.setAttribute("data-run-force-stop-id", run.id);
+      actions.append(forceStopButton);
+    }
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "danger-button compact-button";
+    deleteButton.textContent = "Delete";
+    deleteButton.setAttribute("data-run-delete-id", run.id);
+    actions.append(pdfButton, deleteButton);
+
+    row.append(main, actions);
     list.append(row);
   });
 }
@@ -416,7 +761,7 @@ function renderRecentRuns(runs) {
 async function refreshRecentRuns() {
   try {
     const payload = await fetchJson("/api/runs");
-    renderRecentRuns(payload.runs || []);
+    renderRecentRuns(payload.runs || [], payload.alerts || []);
   } catch (error) {
     const list = document.getElementById("recent-runs-list");
     const empty = document.createElement("p");
@@ -470,8 +815,22 @@ document.getElementById("watchlist-upload").addEventListener("submit", async (ev
 });
 
 document
-  .getElementById("source-login-open-button")
-  .addEventListener("click", openSourceLoginBrowser);
+  .getElementById("source-login-open-sa-button")
+  .addEventListener("click", () => {
+    openSourceLogin("seeking_alpha", "https://seekingalpha.com/");
+  });
+
+document
+  .getElementById("source-login-open-zacks-button")
+  .addEventListener("click", () => {
+    openSourceLogin("zacks", "https://www.zacks.com/login");
+  });
+
+document
+  .getElementById("source-login-open-investing-button")
+  .addEventListener("click", () => {
+    openSourceLogin("investing", "https://www.investing.com/");
+  });
 
 document
   .getElementById("source-login-confirm-button")
@@ -485,10 +844,23 @@ document
   .getElementById("export-report-button")
   .addEventListener("click", exportRunReport);
 
+document
+  .getElementById("retry-enrichments-button")
+  .addEventListener("click", retryRunEnrichments);
+
+document
+  .getElementById("retry-gmail-marks-button")
+  .addEventListener("click", retryGmailMarks);
+
 document.getElementById("run-start-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   if (document.getElementById("start-run-button").disabled) {
-    writeResult("run-start-result", "Start disabled until essential provider setup is ready.");
+    writeResult(
+      "run-start-result",
+      browserBridgeConnected
+        ? "Start disabled until essential provider setup is ready."
+        : "Start disabled until the Chrome bridge extension is connected.",
+    );
     return;
   }
   const form = new FormData(event.currentTarget);
@@ -508,7 +880,13 @@ document.getElementById("run-start-form").addEventListener("submit", async (even
     });
     writeResult("run-start-result", payload);
     if (payload.run_id) {
-      await loadRunDetail(payload.run_id, `Run completed. Loaded details for run #${payload.run_id}.`);
+      const alert = (payload.alerts || [])[0];
+      await loadRunDetail(
+        payload.run_id,
+        alert
+          ? `${alert.title}: ${alert.next || alert.message}`
+          : `Run completed. Loaded details for run #${payload.run_id}.`,
+      );
     }
     await refreshRecentRuns();
   } catch (error) {
@@ -530,6 +908,24 @@ document.getElementById("run-lookup-form").addEventListener("submit", async (eve
 });
 
 document.getElementById("recent-runs-list").addEventListener("click", async (event) => {
+  const pdfButton = event.target.closest("[data-run-pdf-id]");
+  if (pdfButton) {
+    event.stopPropagation();
+    window.location.href = `/api/runs/${pdfButton.getAttribute("data-run-pdf-id")}/report.pdf`;
+    return;
+  }
+  const deleteButton = event.target.closest("[data-run-delete-id]");
+  if (deleteButton) {
+    event.stopPropagation();
+    await deleteRun(deleteButton.getAttribute("data-run-delete-id"));
+    return;
+  }
+  const forceStopButton = event.target.closest("[data-run-force-stop-id]");
+  if (forceStopButton) {
+    event.stopPropagation();
+    await forceStopRun(forceStopButton.getAttribute("data-run-force-stop-id"));
+    return;
+  }
   const row = event.target.closest("[data-run-id]");
   if (!row) {
     return;
@@ -542,6 +938,24 @@ document.getElementById("recent-runs-list").addEventListener("click", async (eve
   }
 });
 
+document.getElementById("recent-runs-list").addEventListener("keydown", async (event) => {
+  if (event.key !== "Enter" && event.key !== " ") {
+    return;
+  }
+  const row = event.target.closest("[data-run-id]");
+  if (!row || event.target !== row) {
+    return;
+  }
+  event.preventDefault();
+  try {
+    await loadRunDetail(row.dataset.runId);
+  } catch (error) {
+    setRunDetailStatus(error.message, true);
+  }
+});
+
 checkHealth();
 refreshProviderStatus();
+refreshBrowserBridgeStatus();
 refreshRecentRuns();
+window.setInterval(refreshBrowserBridgeStatus, 5000);

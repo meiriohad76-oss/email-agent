@@ -1,6 +1,9 @@
-from email_article_analyzer.cli import main
+﻿from email_article_analyzer.cli import main
 from email_article_analyzer.db import initialize_database
 from email_article_analyzer.repositories import GmailDiscoveryRepository, RunRepository
+
+
+from pathlib import Path
 
 
 class FakeCredentials:
@@ -65,6 +68,15 @@ def test_setup_status_cli_prints_first_run_checklist(tmp_path, monkeypatch, caps
     assert f"Place Gmail OAuth client credentials at {credentials_path}" in output
     assert f"Complete Gmail OAuth and save token at {token_path}" in output
     assert "python -m email_article_analyzer.cli setup-status" in output
+
+
+def test_browser_extension_path_cli_prints_load_unpacked_directory(capsys):
+    exit_code = main(["browser-extension-path"])
+
+    assert exit_code == 0
+    extension_path = capsys.readouterr().out.strip()
+    assert extension_path.endswith("browser-extension")
+    assert (Path(extension_path) / "manifest.json").exists()
 
 
 def test_gmail_auth_cli_creates_token_file(tmp_path, monkeypatch, capsys):
@@ -138,6 +150,7 @@ def test_reset_analyzed_state_cli_clears_local_skip_state(tmp_path, monkeypatch,
     assert exit_code == 0
     assert RunRepository(str(db_path)).has_analyzed_gmail_message("msg-1") is False
     output = capsys.readouterr().out
+    assert "Database backup saved to" in output
     assert "Cleared 1 local article analysis row" in output
     assert "Gmail labels were not changed" in output
 
@@ -161,7 +174,7 @@ def test_reset_gmail_processed_state_cli_removes_labels_and_marks_unread(tmp_pat
         FakeGmailProvider,
     )
 
-    exit_code = main(["reset-gmail-processed-state", "--max-results", "25"])
+    exit_code = main(["reset-gmail-processed-state", "--max-results", "25", "--yes"])
 
     assert exit_code == 0
     assert FakeCredentials.calls[0][0] == str(token_path)

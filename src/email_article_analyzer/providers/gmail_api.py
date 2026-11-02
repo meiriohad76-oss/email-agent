@@ -1,7 +1,20 @@
 import base64
 from collections.abc import Iterable
+from dataclasses import replace
 
 from email_article_analyzer.gmail import GmailMessage
+
+
+class GmailLabelResetError(RuntimeError):
+    def __init__(
+        self,
+        message: str,
+        reset_count: int,
+        total_count: int | None = None,
+    ):
+        super().__init__(message)
+        self.reset_count = reset_count
+        self.total_count = total_count
 
 
 class GmailApiProvider:
@@ -46,6 +59,7 @@ class GmailApiProvider:
                 )
                 .execute()
             )
+            page_messages: list[GmailMessage] = []
             for item in response.get("messages", []):
                 if max_results is not None and emitted >= max_results:
                     break
@@ -56,7 +70,9 @@ class GmailApiProvider:
                     .execute()
                 )
                 emitted += 1
-                yield parse_gmail_message(raw_message)
+                page_messages.append(self._parse_message(raw_message))
+            for message in sorted(page_messages, key=lambda item: item.internal_date_ms, reverse=True):
+                yield message
             page_token = response.get("nextPageToken")
             if not page_token or (max_results is not None and emitted >= max_results):
                 break
@@ -68,18 +84,33 @@ class GmailApiProvider:
             .get(userId=self.user_id, id=message_id, format="full")
             .execute()
         )
-        return parse_gmail_message(raw_message)
+        return self._parse_message(raw_message)
 
     def add_label(self, message_id: str, label: str) -> None:
         label_id = self._ensure_label_id(label)
         self._modify_message(message_id, add_label_ids=[label_id], remove_label_ids=[])
 
     def remove_label(self, message_id: str, label: str) -> None:
-        label_id = self._ensure_label_id(label)
+        label_id = self._label_id(label)
+        if label_id is None:
+            return
         self._modify_message(message_id, add_label_ids=[], remove_label_ids=[label_id])
 
     def mark_read(self, message_id: str) -> None:
         self._modify_message(message_id, add_label_ids=[], remove_label_ids=["UNREAD"])
+
+    def mark_analyzed(self, message_id: str, analyzed_label: str, failed_label: str) -> None:
+        analyzed_label_id = self._ensure_label_id(analyzed_label)
+        failed_label_id = self._label_id(failed_label)
+        self._modify_message(
+            message_id,
+            add_label_ids=[analyzed_label_id],
+            remove_label_ids=["UNREAD"] + ([failed_label_id] if failed_label_id else []),
+        )
+
+    def mark_failed(self, message_id: str, failed_label: str) -> None:
+        failed_label_id = self._ensure_label_id(failed_label)
+        self._modify_message(message_id, add_label_ids=[failed_label_id], remove_label_ids=[])
 
     def reset_processing_labels(
         self,
@@ -99,11 +130,53 @@ class GmailApiProvider:
 
         reset_count = 0
         for message_id in self._iter_message_ids(query=query, max_results=max_results):
-            self._modify_message(
-                message_id,
-                add_label_ids=["UNREAD"] if mark_unread else [],
-                remove_label_ids=remove_label_ids,
-            )
+            try:
+                self._modify_message(
+                    message_id,
+                    add_label_ids=["UNREAD"] if mark_unread else [],
+                    remove_label_ids=remove_label_ids,
+                )
+            except Exception as exc:
+                raise GmailLabelResetError(
+                    f"Gmail reset failed after {reset_count} message(s): {exc}",
+                    reset_count=reset_count,
+                    total_count=max_results,
+                ) from exc
+            reset_count += 1
+        return reset_count
+
+    def count_messages(self, query: str, max_results: int | None = None) -> int:
+        return sum(1 for _ in self._iter_message_ids(query=query, max_results=max_results))
+
+    def reset_processing_labels_for_messages(
+        self,
+        message_ids: list[str],
+        label_names: list[str],
+        mark_unread: bool,
+    ) -> int:
+        labels = self._labels_by_name()
+        remove_label_ids = [
+            labels[label_name]
+            for label_name in label_names
+            if label_name in labels
+        ]
+        if not remove_label_ids and not mark_unread:
+            return 0
+
+        reset_count = 0
+        for message_id in message_ids:
+            try:
+                self._modify_message(
+                    message_id,
+                    add_label_ids=["UNREAD"] if mark_unread else [],
+                    remove_label_ids=remove_label_ids,
+                )
+            except Exception as exc:
+                raise GmailLabelResetError(
+                    f"Gmail reset failed after {reset_count} message(s): {exc}",
+                    reset_count=reset_count,
+                    total_count=len(message_ids),
+                ) from exc
             reset_count += 1
         return reset_count
 
@@ -121,6 +194,9 @@ class GmailApiProvider:
         labels[label_name] = label_id
         return label_id
 
+    def _label_id(self, label_name: str) -> str | None:
+        return self._labels_by_name().get(label_name)
+
     def _labels_by_name(self) -> dict[str, str]:
         if self._label_cache is None:
             response = self.service.users().labels().list(userId=self.user_id).execute()
@@ -129,6 +205,20 @@ class GmailApiProvider:
                 for label in response.get("labels", [])
             }
         return self._label_cache
+
+    def _labels_by_id(self) -> dict[str, str]:
+        return {label_id: label_name for label_name, label_id in self._labels_by_name().items()}
+
+    def _parse_message(self, raw_message: dict) -> GmailMessage:
+        message = parse_gmail_message(raw_message)
+        labels_by_id = self._labels_by_id()
+        return replace(
+            message,
+            labels=[
+                labels_by_id.get(label_id, label_id)
+                for label_id in message.labels
+            ],
+        )
 
     def _iter_message_ids(self, query: str, max_results: int | None = None):
         emitted = 0

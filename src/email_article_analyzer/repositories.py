@@ -1,8 +1,18 @@
 import json
+from uuid import uuid4
 from typing import Any
 
 from email_article_analyzer.db import connect
 from email_article_analyzer.watchlist import normalize_ticker
+
+
+RUN_STALE_AFTER_SECONDS = 1800
+
+
+class ActiveRunError(RuntimeError):
+    def __init__(self, active_run_id: int):
+        super().__init__(f"Another discovery run is already active: {active_run_id}")
+        self.active_run_id = active_run_id
 
 
 class RunRepository:
@@ -14,15 +24,45 @@ class RunRepository:
         extraction_model: str | None,
         summary_model: str | None,
     ) -> int:
+        lease_owner = str(uuid4())
+        with connect(self.database_path) as conn:
+            active = conn.execute(
+                """
+                SELECT id
+                FROM runs
+                WHERE status = 'running'
+                ORDER BY id DESC
+                LIMIT 1
+                """
+            ).fetchone()
+            if active is not None:
+                raise ActiveRunError(int(active["id"]))
+            cursor = conn.execute(
+                """
+                INSERT INTO runs (
+                    status, extraction_model, summary_model, lease_owner, heartbeat_at
+                )
+                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """,
+                ("running", extraction_model, summary_model, lease_owner),
+            )
+            return int(cursor.lastrowid)
+
+    def reconcile_stale_running_runs(self) -> int:
+        with connect(self.database_path) as conn:
+            return self._mark_stale_runs_locked(conn)
+
+    def heartbeat_run(self, run_id: int) -> bool:
         with connect(self.database_path) as conn:
             cursor = conn.execute(
                 """
-                INSERT INTO runs (status, extraction_model, summary_model)
-                VALUES (?, ?, ?)
+                UPDATE runs
+                SET heartbeat_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND status = 'running'
                 """,
-                ("running", extraction_model, summary_model),
+                (run_id,),
             )
-            return int(cursor.lastrowid)
+            return cursor.rowcount > 0
 
     def add_event(
         self,
@@ -85,16 +125,64 @@ class RunRepository:
             ).fetchall()
         return [dict(row) for row in rows]
 
-    def complete_run(self, run_id: int, status: str = "completed") -> None:
+    def complete_run(
+        self,
+        run_id: int,
+        status: str = "completed",
+        error_summary: str | None = None,
+    ) -> None:
         with connect(self.database_path) as conn:
             conn.execute(
                 """
                 UPDATE runs
-                SET status = ?, completed_at = CURRENT_TIMESTAMP
+                SET status = ?,
+                    completed_at = CURRENT_TIMESTAMP,
+                    error_summary = ?,
+                    lease_owner = NULL,
+                    heartbeat_at = CURRENT_TIMESTAMP
                 WHERE id = ?
                 """,
-                (status, run_id),
+                (status, error_summary, run_id),
             )
+
+    def complete_run_if_running(
+        self,
+        run_id: int,
+        status: str = "completed",
+        error_summary: str | None = None,
+    ) -> bool:
+        with connect(self.database_path) as conn:
+            cursor = conn.execute(
+                """
+                UPDATE runs
+                SET status = ?,
+                    completed_at = CURRENT_TIMESTAMP,
+                    error_summary = ?,
+                    lease_owner = NULL,
+                    heartbeat_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND status = 'running'
+                """,
+                (status, error_summary, run_id),
+            )
+            return cursor.rowcount > 0
+
+    def _mark_stale_runs_locked(self, conn) -> int:
+        cursor = conn.execute(
+            """
+            UPDATE runs
+            SET status = 'stale',
+                completed_at = CURRENT_TIMESTAMP,
+                error_summary = 'Run heartbeat expired',
+                lease_owner = NULL
+            WHERE status = 'running'
+              AND (
+                heartbeat_at IS NULL
+                OR datetime(heartbeat_at, '+' || ? || ' seconds') < CURRENT_TIMESTAMP
+              )
+            """,
+            (RUN_STALE_AFTER_SECONDS,),
+        )
+        return int(cursor.rowcount)
 
     def discovery_counts(self, run_id: int) -> dict[str, int]:
         with connect(self.database_path) as conn:
@@ -112,6 +200,83 @@ class RunRepository:
                 (run_id,),
             ).fetchone()[0]
         return {"gmail_messages": int(gmail_messages), "article_links": int(article_links)}
+
+    def gmail_message_ids_for_run(self, run_id: int) -> list[str]:
+        with connect(self.database_path) as conn:
+            if conn.execute("SELECT 1 FROM runs WHERE id = ?", (run_id,)).fetchone() is None:
+                raise KeyError(f"Run not found: {run_id}")
+            rows = conn.execute(
+                """
+                SELECT gmail_message_id
+                FROM gmail_messages
+                WHERE run_id = ?
+                ORDER BY id
+                """,
+                (run_id,),
+            ).fetchall()
+        return [str(row["gmail_message_id"]) for row in rows]
+
+    def delete_run(self, run_id: int) -> dict[str, int]:
+        with connect(self.database_path) as conn:
+            if conn.execute("SELECT 1 FROM runs WHERE id = ?", (run_id,)).fetchone() is None:
+                raise KeyError(f"Run not found: {run_id}")
+            deleted: dict[str, int] = {}
+            cursor = conn.execute(
+                "DELETE FROM ticker_enrichments WHERE run_id = ?",
+                (run_id,),
+            )
+            deleted["ticker_enrichments"] = int(cursor.rowcount)
+            cursor = conn.execute(
+                """
+                DELETE FROM article_analyses
+                WHERE article_link_id IN (
+                    SELECT article_links.id
+                    FROM article_links
+                    JOIN gmail_messages ON gmail_messages.id = article_links.gmail_message_id
+                    WHERE gmail_messages.run_id = ?
+                )
+                """,
+                (run_id,),
+            )
+            deleted["article_analyses"] = int(cursor.rowcount)
+            cursor = conn.execute(
+                """
+                DELETE FROM article_contents
+                WHERE article_link_id IN (
+                    SELECT article_links.id
+                    FROM article_links
+                    JOIN gmail_messages ON gmail_messages.id = article_links.gmail_message_id
+                    WHERE gmail_messages.run_id = ?
+                )
+                """,
+                (run_id,),
+            )
+            deleted["article_contents"] = int(cursor.rowcount)
+            cursor = conn.execute(
+                """
+                DELETE FROM article_links
+                WHERE gmail_message_id IN (
+                    SELECT id
+                    FROM gmail_messages
+                    WHERE run_id = ?
+                )
+                """,
+                (run_id,),
+            )
+            deleted["article_links"] = int(cursor.rowcount)
+            cursor = conn.execute(
+                "DELETE FROM gmail_messages WHERE run_id = ?",
+                (run_id,),
+            )
+            deleted["gmail_messages"] = int(cursor.rowcount)
+            cursor = conn.execute(
+                "DELETE FROM run_events WHERE run_id = ?",
+                (run_id,),
+            )
+            deleted["run_events"] = int(cursor.rowcount)
+            cursor = conn.execute("DELETE FROM runs WHERE id = ?", (run_id,))
+            deleted["runs"] = int(cursor.rowcount)
+        return deleted
 
     def has_analyzed_gmail_message(self, gmail_message_id: str) -> bool:
         with connect(self.database_path) as conn:
@@ -133,11 +298,143 @@ class RunRepository:
             cursor = conn.execute("DELETE FROM article_analyses")
             return int(cursor.rowcount)
 
+    def save_ticker_enrichment(
+        self,
+        run_id: int,
+        ticker: str,
+        provider: str,
+        data_type: str,
+        data: dict[str, Any],
+        source_url: str | None = None,
+        status: str = "ready",
+        failure_reason: str | None = None,
+    ) -> int:
+        normalized_ticker = normalize_ticker(ticker)
+        if not normalized_ticker:
+            raise ValueError("ticker is required")
+        data_json = json.dumps(data, sort_keys=True)
+        with connect(self.database_path) as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO ticker_enrichments (
+                    run_id, ticker, provider, data_type, data_json,
+                    source_url, status, failure_reason, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(run_id, ticker, provider, data_type)
+                DO UPDATE SET
+                    data_json = excluded.data_json,
+                    source_url = excluded.source_url,
+                    status = excluded.status,
+                    failure_reason = excluded.failure_reason,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (
+                    run_id,
+                    normalized_ticker,
+                    provider,
+                    data_type,
+                    data_json,
+                    source_url,
+                    status,
+                    failure_reason,
+                ),
+            )
+            row = conn.execute(
+                """
+                SELECT id
+                FROM ticker_enrichments
+                WHERE run_id = ? AND ticker = ? AND provider = ? AND data_type = ?
+                """,
+                (run_id, normalized_ticker, provider, data_type),
+            ).fetchone()
+        return int(row["id"] if row is not None else cursor.lastrowid)
+
+    def list_ticker_enrichments(self, run_id: int) -> list[dict[str, Any]]:
+        with connect(self.database_path) as conn:
+            rows = conn.execute(
+                """
+                SELECT *
+                FROM ticker_enrichments
+                WHERE run_id = ?
+                ORDER BY ticker, provider, data_type
+                """,
+                (run_id,),
+            ).fetchall()
+        enrichments: list[dict[str, Any]] = []
+        for row in rows:
+            item = dict(row)
+            item["data"] = _json_object(item.pop("data_json"))
+            enrichments.append(item)
+        return enrichments
+
+    def has_ticker_enrichments(self, run_id: int, ticker: str) -> bool:
+        normalized_ticker = normalize_ticker(ticker)
+        with connect(self.database_path) as conn:
+            row = conn.execute(
+                """
+                SELECT 1
+                FROM ticker_enrichments
+                WHERE run_id = ? AND ticker = ?
+                LIMIT 1
+                """,
+                (run_id, normalized_ticker),
+            ).fetchone()
+        return row is not None
+
+    def has_complete_ticker_enrichments(
+        self,
+        run_id: int,
+        ticker: str,
+        required_data_types: set[str] | None = None,
+    ) -> bool:
+        normalized_ticker = normalize_ticker(ticker)
+        with connect(self.database_path) as conn:
+            rows = conn.execute(
+                """
+                SELECT provider, data_type, status
+                FROM ticker_enrichments
+                WHERE run_id = ? AND ticker = ?
+                """,
+                (run_id, normalized_ticker),
+            ).fetchall()
+        if not rows:
+            return False
+        if required_data_types is None:
+            return all(row["status"] in {"ready", "not_applicable"} for row in rows)
+        ready_types = set()
+        for row in rows:
+            if row["status"] not in {"ready", "not_applicable"}:
+                continue
+            provider = str(row["provider"])
+            data_type = str(row["data_type"])
+            ready_types.add(data_type)
+            ready_types.add(f"{provider}:{data_type}")
+        return required_data_types.issubset(ready_types)
+
+    def delete_ticker_enrichment(
+        self,
+        run_id: int,
+        ticker: str,
+        provider: str,
+        data_type: str,
+    ) -> int:
+        normalized_ticker = normalize_ticker(ticker)
+        with connect(self.database_path) as conn:
+            cursor = conn.execute(
+                """
+                DELETE FROM ticker_enrichments
+                WHERE run_id = ? AND ticker = ? AND provider = ? AND data_type = ?
+                """,
+                (run_id, normalized_ticker, provider, data_type),
+            )
+        return int(cursor.rowcount)
+
     def list_discovered_articles(self, run_id: int) -> list[dict[str, Any]]:
         with connect(self.database_path) as conn:
-            active_tickers = {
-                row["normalized_ticker"]
-                for row in conn.execute("SELECT normalized_ticker FROM watchlist_items")
+            watchlist_by_ticker = {
+                row["normalized_ticker"]: dict(row)
+                for row in conn.execute("SELECT * FROM watchlist_items")
             }
             rows = conn.execute(
                 """
@@ -185,7 +482,7 @@ class RunRepository:
                 (run_id,),
             ).fetchall()
         return [
-            self._article_detail_from_row(dict(row), active_tickers=active_tickers)
+            self._article_detail_from_row(dict(row), watchlist_by_ticker=watchlist_by_ticker)
             for row in rows
         ]
 
@@ -193,6 +490,7 @@ class RunRepository:
         self,
         row: dict[str, Any],
         active_tickers: set[str] | None = None,
+        watchlist_by_ticker: dict[str, dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         article = {
             "article_link_id": row["article_link_id"],
@@ -217,6 +515,7 @@ class RunRepository:
         if row["analysis_provider"] is not None:
             mentioned_tickers = json.loads(row["mentioned_tickers_json"])
             raw_response = _json_object(row.get("raw_response_json"))
+            active_tickers = active_tickers or set(watchlist_by_ticker or {})
             article["analysis"] = {
                 "provider": row["analysis_provider"],
                 "model": row["analysis_model"],
@@ -227,15 +526,15 @@ class RunRepository:
                 "confidence": row["analysis_confidence"],
                 "supporting_evidence": json.loads(row["supporting_evidence_json"]),
                 "mentioned_tickers": mentioned_tickers,
-                "mentioned_ticker_details": [
-                    {
-                        "ticker": ticker,
-                        "in_portfolio": normalize_ticker(str(ticker)) in (active_tickers or set()),
-                    }
-                    for ticker in mentioned_tickers
-                ],
+                "mentioned_ticker_details": _ticker_details(
+                    mentioned_tickers,
+                    active_tickers=active_tickers,
+                    watchlist_by_ticker=watchlist_by_ticker or {},
+                ),
                 "price_targets": _json_list(raw_response.get("price_targets")),
+                "rating_snapshots": _json_list(raw_response.get("rating_snapshots")),
                 "actionable_data": _json_list(raw_response.get("actionable_data")),
+                "actionable_signals": _json_list(raw_response.get("actionable_signals")),
             }
         return article
 
@@ -292,12 +591,50 @@ class WatchlistRepository:
                 ],
             )
 
+    def replace_portfolio_lots(self, upload_id: int, lots: list[dict[str, Any]]) -> None:
+        with connect(self.database_path) as conn:
+            conn.execute("DELETE FROM portfolio_lots")
+            conn.executemany(
+                """
+                INSERT INTO portfolio_lots (
+                    source_upload_id, row_number, ticker, normalized_ticker,
+                    values_json, polygon_reference
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        upload_id,
+                        lot["row_number"],
+                        lot["ticker"],
+                        lot["normalized_ticker"],
+                        json.dumps(lot["values"], sort_keys=True),
+                        lot.get("polygon_reference"),
+                    )
+                    for lot in lots
+                ],
+            )
+
     def list_active_items(self) -> list[dict[str, Any]]:
         with connect(self.database_path) as conn:
             rows = conn.execute(
                 "SELECT * FROM watchlist_items ORDER BY normalized_ticker"
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def list_active_portfolio_lots(self) -> list[dict[str, Any]]:
+        with connect(self.database_path) as conn:
+            rows = conn.execute(
+                """
+                SELECT *
+                FROM portfolio_lots
+                ORDER BY row_number, id
+                """
+            ).fetchall()
+        lots = [dict(row) for row in rows]
+        for lot in lots:
+            lot["values"] = json.loads(lot.pop("values_json") or "{}")
+        return lots
 
 
 class GmailDiscoveryRepository:
@@ -385,6 +722,87 @@ class GmailDiscoveryRepository:
         if row is None:
             raise KeyError(f"Article link not found: {row_id}")
         return dict(row)
+
+    def update_message_status_by_gmail_id(
+        self,
+        gmail_message_id: str,
+        processing_status: str,
+        failure_reason: str | None = None,
+    ) -> int:
+        with connect(self.database_path) as conn:
+            cursor = conn.execute(
+                """
+                UPDATE gmail_messages
+                SET processing_status = ?,
+                    failure_reason = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = (
+                    SELECT id
+                    FROM gmail_messages
+                    WHERE gmail_message_id = ?
+                    ORDER BY id DESC
+                    LIMIT 1
+                )
+                """,
+                (processing_status, failure_reason, gmail_message_id),
+            )
+            return int(cursor.rowcount)
+
+    def update_message_status_for_run(
+        self,
+        run_id: int,
+        gmail_message_id: str,
+        processing_status: str,
+        failure_reason: str | None = None,
+    ) -> int:
+        with connect(self.database_path) as conn:
+            cursor = conn.execute(
+                """
+                UPDATE gmail_messages
+                SET processing_status = ?,
+                    failure_reason = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE run_id = ? AND gmail_message_id = ?
+                """,
+                (processing_status, failure_reason, run_id, gmail_message_id),
+            )
+            return int(cursor.rowcount)
+
+    def update_message_status(
+        self,
+        row_id: int,
+        processing_status: str,
+        failure_reason: str | None = None,
+    ) -> int:
+        with connect(self.database_path) as conn:
+            cursor = conn.execute(
+                """
+                UPDATE gmail_messages
+                SET processing_status = ?,
+                    failure_reason = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (processing_status, failure_reason, row_id),
+            )
+            return int(cursor.rowcount)
+
+    def list_pending_gmail_mark_messages(self, run_id: int) -> list[dict[str, Any]]:
+        with connect(self.database_path) as conn:
+            rows = conn.execute(
+                """
+                SELECT id, gmail_message_id, processing_status
+                FROM gmail_messages
+                WHERE run_id = ?
+                  AND processing_status IN (
+                    'analyzed_gmail_mark_pending',
+                    'failed_gmail_mark_pending'
+                  )
+                ORDER BY id
+                """,
+                (run_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def save_article_content(
         self,
@@ -483,3 +901,44 @@ def _json_object(value: Any) -> dict[str, Any]:
 
 def _json_list(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
+
+
+def _ticker_details(
+    mentioned_tickers: list[str],
+    active_tickers: set[str],
+    watchlist_by_ticker: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    details = []
+    for ticker in mentioned_tickers:
+        normalized = normalize_ticker(str(ticker))
+        watchlist_item = watchlist_by_ticker.get(normalized)
+        polygon_reference = _json_object(
+            watchlist_item.get("polygon_reference") if watchlist_item else None
+        )
+        detail = {
+            "ticker": ticker,
+            "in_portfolio": normalized in active_tickers,
+        }
+        if watchlist_item is not None:
+            detail.update(
+                {
+                    "company_name": watchlist_item.get("company_name") or polygon_reference.get("name"),
+                    "sector": watchlist_item.get("sector"),
+                    "priority": watchlist_item.get("priority"),
+                    "notes": watchlist_item.get("notes"),
+                    "polygon_reference": polygon_reference,
+                    "asset_type": _asset_type_from_polygon_reference(polygon_reference),
+                }
+            )
+        details.append(detail)
+    return details
+
+
+def _asset_type_from_polygon_reference(reference: dict[str, Any]) -> str | None:
+    polygon_type = str(reference.get("type") or "").upper()
+    name = str(reference.get("name") or "").lower()
+    if polygon_type in {"ETF", "ETN", "FUND"} or "etf" in name:
+        return "etf"
+    if polygon_type in {"CS", "ADRC", "PFD"}:
+        return "stock"
+    return polygon_type.lower() or None

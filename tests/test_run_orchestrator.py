@@ -1,13 +1,16 @@
-import json
+﻿import json
 
 from email_article_analyzer.db import initialize_database
 from email_article_analyzer.article_analysis import ArticleAnalysisResult
+from email_article_analyzer.article_analysis import ArticlePrecheckResult
+from email_article_analyzer.article_analysis import RunReportSynthesisResult
 from email_article_analyzer.article_content import ArticleContentFetchError
 from email_article_analyzer.gmail import GmailCandidate, GmailMessage
 from email_article_analyzer.link_extraction import ExtractedLink
 from email_article_analyzer.model_defaults import DEFAULT_EXTRACTION_MODEL
+from email_article_analyzer.model_defaults import DEFAULT_REPORT_MODEL
 from email_article_analyzer.model_defaults import DEFAULT_SUMMARY_MODEL
-from email_article_analyzer.repositories import GmailDiscoveryRepository, RunRepository
+from email_article_analyzer.repositories import GmailDiscoveryRepository, RunRepository, WatchlistRepository
 from email_article_analyzer.run_orchestration import RunOrchestrator
 from email_article_analyzer.sources import TRUSTED_SOURCES
 
@@ -28,6 +31,14 @@ class FakeDiscoveryService:
 
     def mark_failure(self, message_id):
         self.failures.append(message_id)
+
+
+class HangingMarkSuccessDiscoveryService(FakeDiscoveryService):
+    def mark_success(self, message_id):
+        self.successes.append(message_id)
+        import time
+
+        time.sleep(0.2)
 
 
 class FakeStreamingDiscoveryService(FakeDiscoveryService):
@@ -86,6 +97,18 @@ class FakeArticleAnalyzer:
                     "source_text": "$150 target",
                 }
             ],
+            rating_snapshots=[
+                {
+                    "ticker": "NVDA",
+                    "provider": "seeking_alpha",
+                    "rating_type": "quant",
+                    "rating": "Buy",
+                    "score": None,
+                    "price_target": None,
+                    "currency": "USD",
+                    "source_text": "SA Quant Buy",
+                }
+            ],
             actionable_data=[
                 {
                     "ticker": "NVDA",
@@ -96,6 +119,17 @@ class FakeArticleAnalyzer:
                     "risks": ["Margin compression"],
                     "financial_details": ["Gross margin expanded"],
                     "evidence": ["Raised FY guide", "Gross margin expanded"],
+                }
+            ],
+            actionable_signals=[
+                {
+                    "ticker": "NVDA",
+                    "signal_type": "guidance",
+                    "signal": "Raised FY guide",
+                    "value": "higher guide",
+                    "direction": "positive",
+                    "timeframe": "FY",
+                    "source_text": "Raised FY guide",
                 }
             ],
             raw_response={
@@ -123,7 +157,83 @@ class FakeArticleAnalyzer:
                         "evidence": ["Raised FY guide", "Gross margin expanded"],
                     }
                 ],
+                "actionable_signals": [
+                    {
+                        "ticker": "NVDA",
+                        "signal_type": "guidance",
+                        "signal": "Raised FY guide",
+                        "value": "higher guide",
+                        "direction": "positive",
+                        "timeframe": "FY",
+                        "source_text": "Raised FY guide",
+                    }
+                ],
             },
+        )
+
+
+class FakeArticlePrechecker:
+    def __init__(self):
+        self.calls = []
+
+    def precheck_article(
+        self,
+        url,
+        source_key,
+        email_subject,
+        article_title,
+        article_text,
+        model,
+    ):
+        self.calls.append(
+            {
+                "url": url,
+                "source_key": source_key,
+                "email_subject": email_subject,
+                "article_title": article_title,
+                "article_text": article_text,
+                "model": model,
+            }
+        )
+        return ArticlePrecheckResult(
+            provider="openai",
+            model=model,
+            is_relevant=True,
+            confidence=0.88,
+            tickers=["NVDA"],
+            reason="Relevant stock article.",
+            raw_response={"id": "precheck-1"},
+        )
+
+
+class FakeRunReportSynthesizer:
+    def __init__(self):
+        self.calls = []
+
+    def synthesize_run(self, run, articles, ticker_enrichments, model):
+        self.calls.append(
+            {
+                "run": run,
+                "articles": articles,
+                "ticker_enrichments": ticker_enrichments,
+                "model": model,
+            }
+        )
+        return RunReportSynthesisResult(
+            provider="openai",
+            model=model,
+            executive_summary="NVDA deserves review.",
+            priority_tickers=[
+                {
+                    "ticker": "NVDA",
+                    "priority": "high",
+                    "reason": "Bullish article.",
+                    "evidence": ["Raised FY guide", "Gross margin expanded"],
+                }
+            ],
+            contradictions=[],
+            recommended_actions=["Review NVDA."],
+            raw_response={"id": "synthesis-1"},
         )
 
 
@@ -174,6 +284,24 @@ class DiagnosticFailingArticleContentFetcher:
         )
 
 
+class SourceBlockedArticleContentFetcher:
+    def __init__(self):
+        self.calls = []
+
+    def fetch(self, url):
+        self.calls.append(url)
+        raise ArticleContentFetchError(
+            "Source blocked article extraction with a human verification page",
+            stage="source_blocked",
+            details={
+                "url": url,
+                "skip_analysis": True,
+                "page_title": "Access to this page has been denied",
+                "text_char_count": 128,
+            },
+        )
+
+
 class FailingArticleAnalyzer:
     def analyze_article(
         self,
@@ -185,6 +313,156 @@ class FailingArticleAnalyzer:
         model,
     ):
         raise RuntimeError("OpenAI request failed")
+
+
+class QuotaFailingArticleAnalyzer:
+    def __init__(self):
+        self.calls = []
+
+    def analyze_article(
+        self,
+        url,
+        source_key,
+        email_subject,
+        article_title,
+        article_text,
+        model,
+    ):
+        self.calls.append(url)
+        raise RuntimeError(
+            "Error code: 429 - {'error': {'type': 'insufficient_quota', "
+            "'code': 'insufficient_quota'}}"
+        )
+
+
+class FakeRatingEnricher:
+    def __init__(self):
+        self.calls = []
+
+    def enrich_ticker(self, run_id, ticker):
+        self.calls.append({"run_id": run_id, "ticker": ticker})
+        return {"attempted": 4, "saved": 2, "failed": 0}
+
+
+class ForceStoppedAtCompletionRepository(RunRepository):
+    def complete_run_if_running(self, run_id, status="completed", error_summary=None):
+        super().complete_run(run_id, status="stopped")
+        return False
+
+
+class RecordingDiscoveryService(FakeDiscoveryService):
+    def __init__(self, candidates, log):
+        super().__init__(candidates)
+        self.log = log
+
+    def mark_success(self, message_id):
+        self.log.append(("mark_success", message_id))
+        super().mark_success(message_id)
+
+
+class RecordingRatingEnricher(FakeRatingEnricher):
+    def __init__(self, log):
+        super().__init__()
+        self.log = log
+
+    def enrich_ticker(self, run_id, ticker):
+        self.log.append(("enrich", ticker))
+        return super().enrich_ticker(run_id, ticker)
+
+
+class BrokenRunListingRepository(RunRepository):
+    def list_discovered_articles(self, run_id):
+        raise RuntimeError("Dashboard enrichment query failed")
+
+
+class ActionableOnlyArticleAnalyzer(FakeArticleAnalyzer):
+    def analyze_article(
+        self,
+        url,
+        source_key,
+        email_subject,
+        article_title,
+        article_text,
+        model,
+    ):
+        result = super().analyze_article(
+            url,
+            source_key,
+            email_subject,
+            article_title,
+            article_text,
+            model,
+        )
+        result.mentioned_tickers.clear()
+        result.raw_response["mentioned_tickers"] = []
+        return result
+
+
+class NoisyMentionArticleAnalyzer(FakeArticleAnalyzer):
+    def analyze_article(
+        self,
+        url,
+        source_key,
+        email_subject,
+        article_title,
+        article_text,
+        model,
+    ):
+        result = super().analyze_article(
+            url,
+            source_key,
+            email_subject,
+            article_title,
+            article_text,
+            model,
+        )
+        result.mentioned_tickers[:] = ["KTOS", "COHR"]
+        result.actionable_data[:] = [
+            {
+                "ticker": "KTOS",
+                "sentiment": "neutral",
+                "recommendation": "hold",
+                "timeframe": "current",
+                "catalysts": ["Drone spending"],
+                "risks": ["Weak quant rating"],
+                "financial_details": [],
+                "evidence": ["KTOS quant rating is Sell"],
+            }
+        ]
+        result.actionable_signals[:] = [
+            {
+                "ticker": "KTOS",
+                "signal_type": "risk",
+                "signal": "Quant rating is Sell",
+                "value": "Sell",
+                "direction": "negative",
+                "timeframe": "current",
+                "source_text": "KTOS quant rating is Sell",
+            }
+        ]
+        result.rating_snapshots[:] = [
+            {
+                "ticker": "KTOS",
+                "provider": "seeking_alpha",
+                "rating_type": "quant",
+                "rating": "Sell",
+                "score": 1.53,
+                "price_target": None,
+                "currency": "USD",
+                "source_text": "KTOS quant rating is Sell",
+            }
+        ]
+        result.price_targets.clear()
+        result.raw_response.update(
+            {
+                "mentioned_tickers": ["KTOS", "COHR"],
+                "actionable_data": result.actionable_data,
+                "actionable_signals": result.actionable_signals,
+                "rating_snapshots": result.rating_snapshots,
+                "price_targets": [],
+            }
+        )
+        return result
 
 
 def test_run_orchestrator_persists_candidates_without_login_warning_when_no_fetch_failed(tmp_path):
@@ -232,6 +510,7 @@ def test_run_orchestrator_persists_candidates_without_login_warning_when_no_fetc
         "gmail_messages": 1,
         "article_links": 1,
     }
+    assert gmail_repo.get_message(1)["processing_status"] == "analyzed"
     event_types = [event["event_type"] for event in run_repo.list_events(result.run_id)]
     assert event_types == [
         "run_started",
@@ -309,6 +588,351 @@ def test_run_orchestrator_analyzes_discovered_headline_link_when_analyzer_is_con
     assert analysis["stance"] == "buy_watch"
 
 
+def test_run_orchestrator_enriches_portfolio_tickers_after_analysis(tmp_path):
+    db_path = str(tmp_path / "app.db")
+    initialize_database(db_path)
+    watchlist_repo = WatchlistRepository(db_path)
+    upload_id = watchlist_repo.create_upload("portfolio.csv", ["Symbol"], [{"Symbol": "NVDA"}], 1)
+    watchlist_repo.replace_items(
+        upload_id,
+        [
+            {
+                "ticker": "NVDA",
+                "normalized_ticker": "NVDA",
+                "company_name": "Nvidia",
+                "sector": "Technology",
+                "priority": "core",
+                "notes": None,
+                "polygon_reference": '{"type":"CS","market":"stocks","locale":"us"}',
+            }
+        ],
+    )
+    source = next(source for source in TRUSTED_SOURCES if source.source_key == "seeking_alpha")
+    candidate = GmailCandidate(
+        message=GmailMessage(
+            message_id="msg-1",
+            thread_id="thread-1",
+            sender="alerts@seekingalpha.com",
+            subject="Story",
+            labels=["UNREAD"],
+            html_body="<h1>Story</h1>",
+            text_body="",
+        ),
+        source=source,
+        headline_link=ExtractedLink(
+            url="https://seekingalpha.com/article/1",
+            detection_method="headline_anchor",
+            detection_confidence=0.9,
+        ),
+    )
+    run_repo = RunRepository(db_path)
+    enricher = FakeRatingEnricher()
+    orchestrator = RunOrchestrator(
+        run_repository=run_repo,
+        gmail_repository=GmailDiscoveryRepository(db_path),
+        discovery_service=FakeDiscoveryService([candidate]),
+        article_analyzer=FakeArticleAnalyzer(),
+        article_content_fetcher=FakeArticleContentFetcher(),
+        rating_enricher=enricher,
+    )
+
+    result = orchestrator.start_discovery_run(
+        extraction_model="gpt-extract",
+        summary_model="gpt-summary",
+    )
+
+    assert enricher.calls == [{"run_id": result.run_id, "ticker": "NVDA"}]
+    events = run_repo.list_events(result.run_id)
+    assert [event["event_type"] for event in events][-2:] == [
+        "ticker_rating_enriched",
+        "run_completed",
+    ]
+    assert json.loads(events[-2]["details_json"]) == {
+        "attempted": 4,
+        "saved": 2,
+        "failed": 0,
+    }
+
+
+def test_run_orchestrator_reuses_existing_ticker_enrichment_in_same_run(tmp_path):
+    db_path = str(tmp_path / "app.db")
+    initialize_database(db_path)
+    watchlist_repo = WatchlistRepository(db_path)
+    upload_id = watchlist_repo.create_upload("portfolio.csv", ["Symbol"], [{"Symbol": "NVDA"}], 1)
+    watchlist_repo.replace_items(
+        upload_id,
+        [
+            {
+                "ticker": "NVDA",
+                "normalized_ticker": "NVDA",
+                "company_name": "Nvidia",
+                "sector": "Technology",
+                "priority": "core",
+                "notes": None,
+                "polygon_reference": '{"type":"CS","market":"stocks","locale":"us"}',
+            }
+        ],
+    )
+    source = next(source for source in TRUSTED_SOURCES if source.source_key == "seeking_alpha")
+    candidates = [
+        GmailCandidate(
+            message=GmailMessage(
+                message_id=f"msg-{index}",
+                thread_id=f"thread-{index}",
+                sender="alerts@seekingalpha.com",
+                subject=f"Story {index}",
+                labels=["UNREAD"],
+                html_body="<h1>Story</h1>",
+                text_body="",
+            ),
+            source=source,
+            headline_link=ExtractedLink(
+                url=f"https://seekingalpha.com/article/{index}",
+                detection_method="headline_anchor",
+                detection_confidence=0.9,
+            ),
+        )
+        for index in (1, 2)
+    ]
+    run_repo = RunRepository(db_path)
+    enricher = FakeRatingEnricher()
+    orchestrator = RunOrchestrator(
+        run_repository=run_repo,
+        gmail_repository=GmailDiscoveryRepository(db_path),
+        discovery_service=FakeDiscoveryService(candidates),
+        article_analyzer=FakeArticleAnalyzer(),
+        article_content_fetcher=FakeArticleContentFetcher(),
+        rating_enricher=enricher,
+    )
+
+    result = orchestrator.start_discovery_run(
+        extraction_model="gpt-extract",
+        summary_model="gpt-summary",
+    )
+
+    assert enricher.calls == [{"run_id": result.run_id, "ticker": "NVDA"}]
+
+
+def test_run_orchestrator_does_not_mark_gmail_failed_when_post_analysis_enrichment_fails(tmp_path):
+    db_path = str(tmp_path / "app.db")
+    initialize_database(db_path)
+    watchlist_repo = WatchlistRepository(db_path)
+    upload_id = watchlist_repo.create_upload("portfolio.csv", ["Symbol"], [{"Symbol": "NVDA"}], 1)
+    watchlist_repo.replace_items(
+        upload_id,
+        [
+            {
+                "ticker": "NVDA",
+                "normalized_ticker": "NVDA",
+                "company_name": "Nvidia",
+                "sector": "Technology",
+                "priority": "core",
+                "notes": None,
+                "polygon_reference": '{"type":"CS","market":"stocks","locale":"us"}',
+            }
+        ],
+    )
+    source = next(source for source in TRUSTED_SOURCES if source.source_key == "seeking_alpha")
+    candidate = GmailCandidate(
+        message=GmailMessage(
+            message_id="msg-1",
+            thread_id="thread-1",
+            sender="alerts@seekingalpha.com",
+            subject="Story",
+            labels=["UNREAD"],
+            html_body="<h1>Story</h1>",
+            text_body="",
+        ),
+        source=source,
+        headline_link=ExtractedLink(
+            url="https://seekingalpha.com/article/1",
+            detection_method="headline_anchor",
+            detection_confidence=0.9,
+        ),
+    )
+    discovery_service = FakeDiscoveryService([candidate])
+    run_repo = BrokenRunListingRepository(db_path)
+    gmail_repo = GmailDiscoveryRepository(db_path)
+    orchestrator = RunOrchestrator(
+        run_repository=run_repo,
+        gmail_repository=gmail_repo,
+        discovery_service=discovery_service,
+        article_analyzer=FakeArticleAnalyzer(),
+        article_content_fetcher=FakeArticleContentFetcher(),
+        rating_enricher=FakeRatingEnricher(),
+    )
+
+    result = orchestrator.start_discovery_run(
+        extraction_model="gpt-extract",
+        summary_model="gpt-summary",
+    )
+
+    assert result.status == "completed"
+    assert discovery_service.successes == ["msg-1"]
+    assert discovery_service.failures == []
+    assert gmail_repo.get_message(1)["processing_status"] == "analyzed"
+    event_types = [event["event_type"] for event in run_repo.list_events(result.run_id)]
+    assert "article_analyzed" in event_types
+    assert "candidate_processing_failed" not in event_types
+    assert "ticker_rating_enrichment_failed" in event_types
+
+
+def test_run_orchestrator_enriches_actionable_portfolio_tickers(tmp_path):
+    db_path = str(tmp_path / "app.db")
+    initialize_database(db_path)
+    watchlist_repo = WatchlistRepository(db_path)
+    upload_id = watchlist_repo.create_upload("portfolio.csv", ["Symbol"], [{"Symbol": "NVDA"}], 1)
+    watchlist_repo.replace_items(
+        upload_id,
+        [
+            {
+                "ticker": "NVDA",
+                "normalized_ticker": "NVDA",
+                "company_name": "Nvidia",
+                "sector": "Technology",
+                "priority": "core",
+                "notes": None,
+                "polygon_reference": '{"type":"CS","market":"stocks","locale":"us"}',
+            }
+        ],
+    )
+    source = next(source for source in TRUSTED_SOURCES if source.source_key == "seeking_alpha")
+    candidate = GmailCandidate(
+        message=GmailMessage(
+            message_id="msg-1",
+            thread_id="thread-1",
+            sender="alerts@seekingalpha.com",
+            subject="Story",
+            labels=["UNREAD"],
+            html_body="<h1>Story</h1>",
+            text_body="",
+        ),
+        source=source,
+        headline_link=ExtractedLink(
+            url="https://seekingalpha.com/article/1",
+            detection_method="headline_anchor",
+            detection_confidence=0.9,
+        ),
+    )
+    run_repo = RunRepository(db_path)
+    enricher = FakeRatingEnricher()
+    orchestrator = RunOrchestrator(
+        run_repository=run_repo,
+        gmail_repository=GmailDiscoveryRepository(db_path),
+        discovery_service=FakeDiscoveryService([candidate]),
+        article_analyzer=ActionableOnlyArticleAnalyzer(),
+        article_content_fetcher=FakeArticleContentFetcher(),
+        rating_enricher=enricher,
+    )
+
+    result = orchestrator.start_discovery_run(
+        extraction_model="gpt-extract",
+        summary_model="gpt-summary",
+    )
+
+    assert enricher.calls == [{"run_id": result.run_id, "ticker": "NVDA"}]
+
+
+def test_run_orchestrator_does_not_enrich_noisy_mentioned_only_portfolio_tickers(tmp_path):
+    db_path = str(tmp_path / "app.db")
+    initialize_database(db_path)
+    watchlist_repo = WatchlistRepository(db_path)
+    upload_id = watchlist_repo.create_upload(
+        "portfolio.csv",
+        ["Symbol"],
+        [{"Symbol": "KTOS"}, {"Symbol": "COHR"}],
+        2,
+    )
+    watchlist_repo.replace_items(
+        upload_id,
+        [
+            {
+                "ticker": ticker,
+                "normalized_ticker": ticker,
+                "company_name": None,
+                "sector": None,
+                "priority": None,
+                "notes": None,
+                "polygon_reference": '{"type":"CS","market":"stocks","locale":"us"}',
+            }
+            for ticker in ("KTOS", "COHR")
+        ],
+    )
+    source = next(source for source in TRUSTED_SOURCES if source.source_key == "seeking_alpha")
+    candidate = GmailCandidate(
+        message=GmailMessage(
+            message_id="msg-1",
+            thread_id="thread-1",
+            sender="alerts@seekingalpha.com",
+            subject="KTOS: NATO drone spending",
+            labels=["UNREAD"],
+            html_body="<h1>KTOS story</h1>",
+            text_body="",
+        ),
+        source=source,
+        headline_link=ExtractedLink(
+            url="https://seekingalpha.com/news/ktos",
+            detection_method="headline_anchor",
+            detection_confidence=0.9,
+        ),
+    )
+    enricher = FakeRatingEnricher()
+    orchestrator = RunOrchestrator(
+        run_repository=RunRepository(db_path),
+        gmail_repository=GmailDiscoveryRepository(db_path),
+        discovery_service=FakeDiscoveryService([candidate]),
+        article_analyzer=NoisyMentionArticleAnalyzer(),
+        article_content_fetcher=FakeArticleContentFetcher(),
+        rating_enricher=enricher,
+    )
+
+    result = orchestrator.start_discovery_run(
+        extraction_model="gpt-extract",
+        summary_model="gpt-summary",
+    )
+
+    assert enricher.calls == [{"run_id": result.run_id, "ticker": "KTOS"}]
+
+
+def test_run_orchestrator_persists_gmail_received_timestamp(tmp_path):
+    db_path = str(tmp_path / "app.db")
+    initialize_database(db_path)
+    source = next(source for source in TRUSTED_SOURCES if source.source_key == "seeking_alpha")
+    candidate = GmailCandidate(
+        message=GmailMessage(
+            message_id="msg-1",
+            thread_id="thread-1",
+            sender="alerts@seekingalpha.com",
+            subject="Story",
+            labels=["UNREAD"],
+            html_body="<h1>Story</h1>",
+            text_body="",
+            internal_date_ms=1_782_144_000_000,
+        ),
+        source=source,
+        headline_link=ExtractedLink(
+            url="https://seekingalpha.com/article/1",
+            detection_method="headline_anchor",
+            detection_confidence=0.9,
+        ),
+    )
+    gmail_repo = GmailDiscoveryRepository(db_path)
+    orchestrator = RunOrchestrator(
+        run_repository=RunRepository(db_path),
+        gmail_repository=gmail_repo,
+        discovery_service=FakeDiscoveryService([candidate]),
+        article_analyzer=FakeArticleAnalyzer(),
+    )
+
+    orchestrator.start_discovery_run(
+        extraction_model="gpt-extract",
+        summary_model="gpt-summary",
+    )
+
+    row = gmail_repo.get_message(1)
+    assert row["received_at"] == "2026-06-22T16:00:00+00:00"
+
+
 def test_run_orchestrator_uses_default_models_when_inputs_are_blank(tmp_path):
     db_path = str(tmp_path / "app.db")
     initialize_database(db_path)
@@ -349,6 +973,58 @@ def test_run_orchestrator_uses_default_models_when_inputs_are_blank(tmp_path):
     assert run["extraction_model"] == DEFAULT_EXTRACTION_MODEL
     assert run["summary_model"] == DEFAULT_SUMMARY_MODEL
     assert analyzer.calls[0]["model"] == DEFAULT_SUMMARY_MODEL
+
+
+def test_run_orchestrator_runs_precheck_analysis_and_report_synthesis_models(tmp_path):
+    db_path = str(tmp_path / "app.db")
+    initialize_database(db_path)
+    source = next(source for source in TRUSTED_SOURCES if source.source_key == "seeking_alpha")
+    candidate = GmailCandidate(
+        message=GmailMessage(
+            message_id="msg-1",
+            thread_id="thread-1",
+            sender="alerts@seekingalpha.com",
+            subject="NVDA story",
+            labels=["UNREAD"],
+            html_body="<h1>NVDA story</h1>",
+            text_body="",
+        ),
+        source=source,
+        headline_link=ExtractedLink(
+            url="https://seekingalpha.com/article/1",
+            detection_method="headline_anchor",
+            detection_confidence=0.9,
+        ),
+    )
+    prechecker = FakeArticlePrechecker()
+    analyzer = FakeArticleAnalyzer()
+    synthesizer = FakeRunReportSynthesizer()
+    run_repo = RunRepository(db_path)
+    orchestrator = RunOrchestrator(
+        run_repository=run_repo,
+        gmail_repository=GmailDiscoveryRepository(db_path),
+        discovery_service=FakeDiscoveryService([candidate]),
+        article_analyzer=analyzer,
+        article_prechecker=prechecker,
+        report_synthesizer=synthesizer,
+    )
+
+    result = orchestrator.start_discovery_run(
+        extraction_model="gpt-precheck",
+        summary_model="gpt-analysis",
+    )
+
+    assert prechecker.calls[0]["model"] == "gpt-precheck"
+    assert analyzer.calls[0]["model"] == "gpt-analysis"
+    assert synthesizer.calls[0]["model"] == DEFAULT_REPORT_MODEL
+    events = run_repo.list_events(result.run_id)
+    assert [event["event_type"] for event in events].count("article_prechecked") == 1
+    synthesis_event = next(
+        event for event in events if event["event_type"] == "run_report_synthesized"
+    )
+    details = json.loads(synthesis_event["details_json"])
+    assert details["model"] == DEFAULT_REPORT_MODEL
+    assert details["priority_tickers"][0]["ticker"] == "NVDA"
 
 
 def test_run_orchestrator_records_failed_content_fetch_and_falls_back_to_headline_analysis(tmp_path):
@@ -478,6 +1154,56 @@ def test_run_orchestrator_records_structured_content_fetch_diagnostics(tmp_path)
     assert details["final_url"] == "about:blank"
 
 
+def test_run_orchestrator_does_not_analyze_source_blocked_content(tmp_path):
+    db_path = str(tmp_path / "app.db")
+    initialize_database(db_path)
+    source = next(source for source in TRUSTED_SOURCES if source.source_key == "seeking_alpha")
+    candidate = GmailCandidate(
+        message=GmailMessage(
+            message_id="msg-1",
+            thread_id="thread-1",
+            sender="alerts@seekingalpha.com",
+            subject="Story",
+            labels=["UNREAD"],
+            html_body="<html><body><h1>Story</h1><p>Newsletter fallback.</p></body></html>",
+            text_body="",
+        ),
+        source=source,
+        headline_link=ExtractedLink(
+            url="https://seekingalpha.com/article/1",
+            detection_method="headline_anchor",
+            detection_confidence=0.9,
+        ),
+    )
+    analyzer = FakeArticleAnalyzer()
+    run_repo = RunRepository(db_path)
+    gmail_repo = GmailDiscoveryRepository(db_path)
+    discovery_service = FakeDiscoveryService([candidate])
+    orchestrator = RunOrchestrator(
+        run_repository=run_repo,
+        gmail_repository=gmail_repo,
+        discovery_service=discovery_service,
+        article_analyzer=analyzer,
+        article_content_fetcher=SourceBlockedArticleContentFetcher(),
+    )
+
+    result = orchestrator.start_discovery_run(
+        extraction_model="gpt-extract",
+        summary_model="gpt-summary",
+    )
+
+    assert result.status == "completed"
+    assert analyzer.calls == []
+    assert discovery_service.successes == []
+    assert discovery_service.failures == ["msg-1"]
+    content = gmail_repo.get_article_content(1)
+    assert content["fetch_status"] == "blocked"
+    assert content["failure_reason"] == "Source blocked article extraction with a human verification page"
+    event_types = [event["event_type"] for event in run_repo.list_events(result.run_id)]
+    assert "article_analyzed" not in event_types
+    assert "article_content_blocked" in event_types
+
+
 def test_run_orchestrator_records_candidate_failure_and_completes_run(tmp_path):
     db_path = str(tmp_path / "app.db")
     initialize_database(db_path)
@@ -530,6 +1256,67 @@ def test_run_orchestrator_records_candidate_failure_and_completes_run(tmp_path):
     assert events[3]["message"] == "Candidate processing failed; continuing run"
 
 
+def test_run_orchestrator_stops_immediately_on_openai_quota_failure(tmp_path):
+    db_path = str(tmp_path / "app.db")
+    initialize_database(db_path)
+    source = next(source for source in TRUSTED_SOURCES if source.source_key == "seeking_alpha")
+    candidates = [
+        GmailCandidate(
+            message=GmailMessage(
+                message_id=f"msg-{index}",
+                thread_id=f"thread-{index}",
+                sender="alerts@seekingalpha.com",
+                subject=f"Story {index}",
+                labels=["UNREAD"],
+                html_body="<h1>Story</h1>",
+                text_body="",
+            ),
+            source=source,
+            headline_link=ExtractedLink(
+                url=f"https://seekingalpha.com/article/{index}",
+                detection_method="headline_anchor",
+                detection_confidence=0.9,
+            ),
+        )
+        for index in (1, 2)
+    ]
+    run_repo = RunRepository(db_path)
+    discovery_service = FakeDiscoveryService(candidates)
+    analyzer = QuotaFailingArticleAnalyzer()
+    orchestrator = RunOrchestrator(
+        run_repository=run_repo,
+        gmail_repository=GmailDiscoveryRepository(db_path),
+        discovery_service=discovery_service,
+        article_analyzer=analyzer,
+        article_content_fetcher=FakeArticleContentFetcher(),
+    )
+
+    result = orchestrator.start_discovery_run(
+        extraction_model="gpt-extract",
+        summary_model="gpt-summary",
+    )
+
+    assert result.status == "stopped"
+    assert result.candidate_count == 0
+    assert analyzer.calls == ["https://seekingalpha.com/article/1"]
+    assert discovery_service.failures == []
+    assert discovery_service.successes == []
+    first_message = orchestrator.gmail_repository.get_message(1)
+    assert first_message["processing_status"] == "analysis_api_blocked"
+    assert "insufficient_quota" in first_message["failure_reason"]
+    assert run_repo.get_run(result.run_id)["status"] == "stopped"
+    events = run_repo.list_events(result.run_id)
+    assert [event["event_type"] for event in events] == [
+        "run_started",
+        "gmail_search_started",
+        "headline_link_detected",
+        "article_content_extracted",
+        "candidate_processing_failed",
+        "run_stopped",
+    ]
+    assert events[4]["message"] == "OpenAI quota exhausted; stopping run"
+
+
 def test_run_orchestrator_marks_and_skips_previously_analyzed_gmail_message(tmp_path):
     db_path = str(tmp_path / "app.db")
     initialize_database(db_path)
@@ -554,6 +1341,7 @@ def test_run_orchestrator_marks_and_skips_previously_analyzed_gmail_message(tmp_
     run_repo = RunRepository(db_path)
     gmail_repo = GmailDiscoveryRepository(db_path)
     previous_run_id = run_repo.create_run("gpt-extract", "gpt-summary")
+    run_repo.complete_run(previous_run_id)
     message_row_id = gmail_repo.save_message(
         run_id=previous_run_id,
         gmail_message_id="msg-1",
@@ -672,7 +1460,141 @@ def test_run_orchestrator_analyzes_streamed_candidate_before_discovering_next_em
     ]
 
 
-def test_run_orchestrator_stops_before_next_candidate_when_stop_requested(tmp_path):
+def test_run_orchestrator_does_not_block_when_gmail_success_marking_hangs(tmp_path):
+    db_path = str(tmp_path / "app.db")
+    initialize_database(db_path)
+    source = next(source for source in TRUSTED_SOURCES if source.source_key == "seeking_alpha")
+    candidates = [
+        GmailCandidate(
+            message=GmailMessage(
+                message_id=f"msg-{index}",
+                thread_id=f"thread-{index}",
+                sender="alerts@seekingalpha.com",
+                subject=f"Story {index}",
+                labels=["UNREAD"],
+                html_body="<h1>Story</h1>",
+                text_body="",
+                internal_date_ms=index,
+            ),
+            source=source,
+            headline_link=ExtractedLink(
+                url=f"https://seekingalpha.com/article/{index}",
+                detection_method="headline_anchor",
+                detection_confidence=0.9,
+            ),
+        )
+        for index in (1, 2)
+    ]
+    run_repo = RunRepository(db_path)
+    analyzer = FakeArticleAnalyzer()
+    discovery_service = HangingMarkSuccessDiscoveryService(candidates)
+    orchestrator = RunOrchestrator(
+        run_repository=run_repo,
+        gmail_repository=GmailDiscoveryRepository(db_path),
+        discovery_service=discovery_service,
+        article_analyzer=analyzer,
+        gmail_mark_timeout_seconds=0.01,
+    )
+
+    result = orchestrator.start_discovery_run(
+        extraction_model="gpt-extract",
+        summary_model="gpt-summary",
+    )
+
+    assert result.status == "completed"
+    assert result.candidate_count == 2
+    assert len(analyzer.calls) == 2
+    events = run_repo.list_events(result.run_id)
+    assert [event["event_type"] for event in events].count("gmail_mark_success_timeout") == 2
+    messages = [
+        row
+        for row in (
+            orchestrator.gmail_repository.get_message(1),
+            orchestrator.gmail_repository.get_message(2),
+        )
+    ]
+    assert [message["processing_status"] for message in messages] == [
+        "analyzed_gmail_mark_pending",
+        "analyzed_gmail_mark_pending",
+    ]
+    assert all("Gmail success marker timed out" in message["failure_reason"] for message in messages)
+
+
+def test_run_orchestrator_finishes_current_article_enrichment_before_stopping(tmp_path):
+    db_path = str(tmp_path / "app.db")
+    initialize_database(db_path)
+    watchlist_repo = WatchlistRepository(db_path)
+    upload_id = watchlist_repo.create_upload("portfolio.csv", ["Symbol"], [{"Symbol": "NVDA"}], 1)
+    watchlist_repo.replace_items(
+        upload_id,
+        [
+            {
+                "ticker": "NVDA",
+                "normalized_ticker": "NVDA",
+                "company_name": "Nvidia",
+                "sector": "Technology",
+                "priority": "core",
+                "notes": None,
+                "polygon_reference": '{"type":"CS","market":"stocks","locale":"us"}',
+            }
+        ],
+    )
+    source = next(source for source in TRUSTED_SOURCES if source.source_key == "seeking_alpha")
+    candidates = [
+        GmailCandidate(
+            message=GmailMessage(
+                message_id=f"msg-{index}",
+                thread_id=f"thread-{index}",
+                sender="alerts@seekingalpha.com",
+                subject=f"Story {index}",
+                labels=["UNREAD"],
+                html_body="<h1>Story</h1>",
+                text_body="",
+            ),
+            source=source,
+            headline_link=ExtractedLink(
+                url=f"https://seekingalpha.com/article/{index}",
+                detection_method="headline_anchor",
+                detection_confidence=0.9,
+            ),
+        )
+        for index in (1, 2)
+    ]
+    analyzer = FakeArticleAnalyzer()
+    enricher = FakeRatingEnricher()
+    run_repo = RunRepository(db_path)
+    orchestrator = RunOrchestrator(
+        run_repository=run_repo,
+        gmail_repository=GmailDiscoveryRepository(db_path),
+        discovery_service=FakeDiscoveryService(candidates),
+        article_analyzer=analyzer,
+        rating_enricher=enricher,
+        stop_requested=lambda: len(analyzer.calls) >= 1,
+    )
+
+    result = orchestrator.start_discovery_run(
+        extraction_model="gpt-extract",
+        summary_model="gpt-summary",
+    )
+
+    assert result.status == "stopped"
+    assert result.candidate_count == 1
+    assert len(analyzer.calls) == 1
+    assert enricher.calls == [{"run_id": result.run_id, "ticker": "NVDA"}]
+    assert run_repo.get_run(result.run_id)["status"] == "stopped"
+    events = run_repo.list_events(result.run_id)
+    assert [event["event_type"] for event in events] == [
+        "run_started",
+        "gmail_search_started",
+        "headline_link_detected",
+        "article_analyzed",
+        "ticker_rating_enriched",
+        "run_stop_requested",
+        "run_stopped",
+    ]
+
+
+def test_run_orchestrator_does_not_consume_next_candidate_after_stop_requested(tmp_path):
     db_path = str(tmp_path / "app.db")
     initialize_database(db_path)
     source = next(source for source in TRUSTED_SOURCES if source.source_key == "seeking_alpha")
@@ -697,11 +1619,11 @@ def test_run_orchestrator_stops_before_next_candidate_when_stop_requested(tmp_pa
         for index in (1, 2)
     ]
     analyzer = FakeArticleAnalyzer()
-    run_repo = RunRepository(db_path)
+    log = []
     orchestrator = RunOrchestrator(
-        run_repository=run_repo,
+        run_repository=RunRepository(db_path),
         gmail_repository=GmailDiscoveryRepository(db_path),
-        discovery_service=FakeDiscoveryService(candidates),
+        discovery_service=FakeStreamingDiscoveryService(candidates, log, analyzer),
         article_analyzer=analyzer,
         stop_requested=lambda: len(analyzer.calls) >= 1,
     )
@@ -713,14 +1635,85 @@ def test_run_orchestrator_stops_before_next_candidate_when_stop_requested(tmp_pa
 
     assert result.status == "stopped"
     assert result.candidate_count == 1
-    assert len(analyzer.calls) == 1
+    assert log == [
+        ("yield_candidate", "msg-1"),
+    ]
+
+
+def test_run_orchestrator_skips_completion_event_when_db_status_changed(tmp_path):
+    db_path = str(tmp_path / "app.db")
+    initialize_database(db_path)
+    run_repo = ForceStoppedAtCompletionRepository(db_path)
+    orchestrator = RunOrchestrator(
+        run_repository=run_repo,
+        gmail_repository=GmailDiscoveryRepository(db_path),
+        discovery_service=FakeDiscoveryService([]),
+    )
+
+    result = orchestrator.start_discovery_run(
+        extraction_model="gpt-extract",
+        summary_model="gpt-summary",
+    )
+
+    assert result.status == "stopped"
     assert run_repo.get_run(result.run_id)["status"] == "stopped"
-    events = run_repo.list_events(result.run_id)
-    assert [event["event_type"] for event in events] == [
-        "run_started",
-        "gmail_search_started",
-        "headline_link_detected",
-        "article_analyzed",
-        "run_stop_requested",
-        "run_stopped",
+    event_types = [event["event_type"] for event in run_repo.list_events(result.run_id)]
+    assert "run_completion_skipped" in event_types
+    assert "run_completed" not in event_types
+
+
+def test_run_orchestrator_enriches_before_marking_gmail_success(tmp_path):
+    db_path = str(tmp_path / "app.db")
+    initialize_database(db_path)
+    watchlist_repo = WatchlistRepository(db_path)
+    upload_id = watchlist_repo.create_upload("portfolio.csv", ["Symbol"], [{"Symbol": "NVDA"}], 1)
+    watchlist_repo.replace_items(
+        upload_id,
+        [
+            {
+                "ticker": "NVDA",
+                "normalized_ticker": "NVDA",
+                "company_name": "Nvidia",
+                "sector": "Technology",
+                "priority": "core",
+                "notes": None,
+                "polygon_reference": '{"type":"CS","market":"stocks","locale":"us"}',
+            }
+        ],
+    )
+    source = next(source for source in TRUSTED_SOURCES if source.source_key == "seeking_alpha")
+    candidate = GmailCandidate(
+        message=GmailMessage(
+            message_id="msg-1",
+            thread_id="thread-1",
+            sender="alerts@seekingalpha.com",
+            subject="Story",
+            labels=["UNREAD"],
+            html_body="<h1>Story</h1>",
+            text_body="",
+        ),
+        source=source,
+        headline_link=ExtractedLink(
+            url="https://seekingalpha.com/article/1",
+            detection_method="headline_anchor",
+            detection_confidence=0.9,
+        ),
+    )
+    log = []
+    orchestrator = RunOrchestrator(
+        run_repository=RunRepository(db_path),
+        gmail_repository=GmailDiscoveryRepository(db_path),
+        discovery_service=RecordingDiscoveryService([candidate], log),
+        article_analyzer=FakeArticleAnalyzer(),
+        rating_enricher=RecordingRatingEnricher(log),
+    )
+
+    orchestrator.start_discovery_run(
+        extraction_model="gpt-extract",
+        summary_model="gpt-summary",
+    )
+
+    assert log == [
+        ("enrich", "NVDA"),
+        ("mark_success", "msg-1"),
     ]

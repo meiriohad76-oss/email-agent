@@ -1,4 +1,4 @@
-from email_article_analyzer.db import initialize_database
+﻿from email_article_analyzer.db import initialize_database
 from email_article_analyzer.repositories import RunRepository
 
 

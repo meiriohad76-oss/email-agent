@@ -1,4 +1,4 @@
-from email_article_analyzer.config import AppConfig
+﻿from email_article_analyzer.config import AppConfig
 
 
 def test_config_loads_defaults_for_local_development(tmp_path, monkeypatch):
@@ -11,6 +11,12 @@ def test_config_loads_defaults_for_local_development(tmp_path, monkeypatch):
     monkeypatch.delenv("GMAIL_TOKEN_PATH", raising=False)
     monkeypatch.delenv("TLS_VERIFY", raising=False)
     monkeypatch.delenv("SOURCE_LOGIN_CONFIRMATION_PATH", raising=False)
+    monkeypatch.delenv("ARTICLE_PAGE_PAUSE_SECONDS", raising=False)
+    monkeypatch.delenv("ARTICLE_CHROME_MODE", raising=False)
+    monkeypatch.delenv("ARTICLE_CHROME_PROFILE_PATH", raising=False)
+    monkeypatch.delenv("ARTICLE_CHROME_CDP_URL", raising=False)
+    monkeypatch.delenv("GMAIL_API_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.delenv("INVESTING_MAPPING_PATH", raising=False)
 
     config = AppConfig.from_env()
 
@@ -22,6 +28,12 @@ def test_config_loads_defaults_for_local_development(tmp_path, monkeypatch):
     assert config.gmail_token_path == "data/gmail_token.json"
     assert config.tls_verify is True
     assert config.source_login_confirmation_path == "data/source_login_confirmed.json"
+    assert config.article_page_pause_seconds == 6.0
+    assert config.article_chrome_mode == "app_profile"
+    assert config.article_chrome_profile_path == "data/user-chrome-profile"
+    assert config.article_chrome_cdp_url == "http://127.0.0.1:9222"
+    assert config.gmail_api_timeout_seconds == 20.0
+    assert config.investing_mapping_path == "data/investing_instrument_mapping.csv"
 
 
 def test_config_reads_environment_overrides(tmp_path, monkeypatch):
@@ -34,6 +46,12 @@ def test_config_reads_environment_overrides(tmp_path, monkeypatch):
     monkeypatch.setenv("GMAIL_TOKEN_PATH", "secrets/token.json")
     monkeypatch.setenv("TLS_VERIFY", "false")
     monkeypatch.setenv("SOURCE_LOGIN_CONFIRMATION_PATH", "state/source-logins.json")
+    monkeypatch.setenv("ARTICLE_PAGE_PAUSE_SECONDS", "8.5")
+    monkeypatch.setenv("ARTICLE_CHROME_MODE", "existing_debug")
+    monkeypatch.setenv("ARTICLE_CHROME_PROFILE_PATH", "state/chrome-profile")
+    monkeypatch.setenv("ARTICLE_CHROME_CDP_URL", "http://127.0.0.1:9333")
+    monkeypatch.setenv("GMAIL_API_TIMEOUT_SECONDS", "11.5")
+    monkeypatch.setenv("INVESTING_MAPPING_PATH", "state/investing-map.csv")
 
     config = AppConfig.from_env()
 
@@ -45,6 +63,12 @@ def test_config_reads_environment_overrides(tmp_path, monkeypatch):
     assert config.gmail_token_path == "secrets/token.json"
     assert config.tls_verify is False
     assert config.source_login_confirmation_path == "state/source-logins.json"
+    assert config.article_page_pause_seconds == 8.5
+    assert config.article_chrome_mode == "existing_debug"
+    assert config.article_chrome_profile_path == "state/chrome-profile"
+    assert config.article_chrome_cdp_url == "http://127.0.0.1:9333"
+    assert config.gmail_api_timeout_seconds == 11.5
+    assert config.investing_mapping_path == "state/investing-map.csv"
 
 
 def test_config_reads_dotenv_file(tmp_path, monkeypatch):

@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "Email Article Analyzer Bridge",
+  "version": "0.1.14",
+  "description": "Opens article tabs in the user's Chrome window and sends extracted article text to the local analyzer.",
+  "permissions": ["tabs", "scripting", "windows", "storage", "alarms"],
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*",
+    "https://seekingalpha.com/*",
+    "https://www.seekingalpha.com/*",
+    "https://zacks.com/*",
+    "https://www.zacks.com/*",
+    "https://investing.com/*",
+    "https://www.investing.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "options_page": "options.html"
+}

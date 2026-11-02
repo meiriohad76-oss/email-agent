@@ -1,6 +1,10 @@
-import base64
+﻿import base64
 
-from email_article_analyzer.providers.gmail_api import GmailApiProvider, parse_gmail_message
+from email_article_analyzer.providers.gmail_api import (
+    GmailApiProvider,
+    GmailLabelResetError,
+    parse_gmail_message,
+)
 
 
 def encoded(value: str) -> str:
@@ -31,6 +35,8 @@ class FakeMessages:
 
     def modify(self, userId, id, body):
         self.service.calls.append(("messages.modify", userId, id, body))
+        if id in self.service.modify_failures:
+            raise RuntimeError(f"modify failed for {id}")
         return FakeExecute({"id": id})
 
 
@@ -65,6 +71,7 @@ class FakeGmailService:
         self.messages = messages
         self.labels = labels or []
         self.pages = list(pages or [])
+        self.modify_failures = set()
         self.calls = []
 
     def users(self):
@@ -173,6 +180,45 @@ def test_gmail_api_provider_reads_all_search_result_pages():
     assert [message.message_id for message in messages] == ["msg-1", "msg-2"]
     assert ("messages.list", "me", "is:unread", None, 100) in service.calls
     assert ("messages.list", "me", "is:unread", "page-2", 100) in service.calls
+
+
+def test_gmail_api_provider_sorts_each_result_page_by_internal_date_descending():
+    older_message = {
+        "id": "older",
+        "threadId": "thread-older",
+        "internalDate": "100",
+        "labelIds": ["UNREAD"],
+        "payload": {"headers": [], "body": {"data": encoded("Older")}, "mimeType": "text/plain"},
+    }
+    newer_message = {
+        "id": "newer",
+        "threadId": "thread-newer",
+        "internalDate": "300",
+        "labelIds": ["UNREAD"],
+        "payload": {"headers": [], "body": {"data": encoded("Newer")}, "mimeType": "text/plain"},
+    }
+    middle_message = {
+        "id": "middle",
+        "threadId": "thread-middle",
+        "internalDate": "200",
+        "labelIds": ["UNREAD"],
+        "payload": {"headers": [], "body": {"data": encoded("Middle")}, "mimeType": "text/plain"},
+    }
+    service = FakeGmailService(
+        messages={
+            "older": older_message,
+            "newer": newer_message,
+            "middle": middle_message,
+        },
+        pages=[
+            {"messages": [{"id": "older"}, {"id": "newer"}, {"id": "middle"}]},
+        ],
+    )
+    provider = GmailApiProvider(service=service)
+
+    messages = list(provider.iter_unread_messages("is:unread", max_results=3, page_size=3))
+
+    assert [message.message_id for message in messages] == ["newer", "middle", "older"]
 
 
 def test_gmail_api_provider_stops_after_max_results():
@@ -350,3 +396,57 @@ def test_gmail_api_provider_resets_processing_labels_and_marks_unread():
         "msg-2",
         {"addLabelIds": ["UNREAD"], "removeLabelIds": ["Label_1", "Label_2"]},
     ) in service.calls
+
+
+def test_gmail_api_provider_resets_processing_labels_for_specific_messages():
+    service = FakeGmailService(
+        messages={},
+        labels=[
+            {"id": "Label_1", "name": "Analyzed"},
+            {"id": "Label_2", "name": "Analysis Failed"},
+        ],
+    )
+    provider = GmailApiProvider(service=service)
+
+    reset_count = provider.reset_processing_labels_for_messages(
+        message_ids=["msg-1", "msg-2"],
+        label_names=["Analyzed", "Analysis Failed"],
+        mark_unread=True,
+    )
+
+    assert reset_count == 2
+    assert ("labels.list", "me") in service.calls
+    assert (
+        "messages.modify",
+        "me",
+        "msg-1",
+        {"addLabelIds": ["UNREAD"], "removeLabelIds": ["Label_1", "Label_2"]},
+    ) in service.calls
+    assert (
+        "messages.modify",
+        "me",
+        "msg-2",
+        {"addLabelIds": ["UNREAD"], "removeLabelIds": ["Label_1", "Label_2"]},
+    ) in service.calls
+
+
+def test_gmail_api_provider_reports_partial_specific_message_reset_failure():
+    service = FakeGmailService(
+        messages={},
+        labels=[{"id": "Label_1", "name": "Analyzed"}],
+    )
+    service.modify_failures.add("msg-2")
+    provider = GmailApiProvider(service=service)
+
+    try:
+        provider.reset_processing_labels_for_messages(
+            message_ids=["msg-1", "msg-2", "msg-3"],
+            label_names=["Analyzed"],
+            mark_unread=True,
+        )
+    except GmailLabelResetError as exc:
+        assert exc.reset_count == 1
+        assert exc.total_count == 3
+        assert "msg-2" in str(exc)
+    else:
+        raise AssertionError("Expected GmailLabelResetError")

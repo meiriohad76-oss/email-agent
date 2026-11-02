@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+﻿from dataclasses import dataclass
 
 from email_article_analyzer.gmail import GmailDiscoveryService, GmailMessage
 from email_article_analyzer.sources import TRUSTED_SOURCES

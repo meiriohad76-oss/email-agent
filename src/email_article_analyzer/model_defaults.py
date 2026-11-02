@@ -1,5 +1,6 @@
-DEFAULT_EXTRACTION_MODEL = "gpt-5.4"
-DEFAULT_SUMMARY_MODEL = "gpt-5.4-mini"
+DEFAULT_EXTRACTION_MODEL = "gpt-5.6-luna"
+DEFAULT_SUMMARY_MODEL = "gpt-5.6-terra"
+DEFAULT_REPORT_MODEL = "gpt-5.6-sol"
 
 
 def normalize_model_name(value: object, default: str) -> str:

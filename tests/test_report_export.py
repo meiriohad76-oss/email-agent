@@ -1,7 +1,7 @@
-from fastapi.testclient import TestClient
+﻿from fastapi.testclient import TestClient
 
 from email_article_analyzer.db import initialize_database
-from email_article_analyzer.main import create_app
+from email_article_analyzer.application import create_app
 from email_article_analyzer.report_export import build_run_markdown_report
 from email_article_analyzer.repositories import (
     GmailDiscoveryRepository,
@@ -69,6 +69,17 @@ def test_build_run_markdown_report_separates_portfolio_and_non_portfolio_article
                             "financial_details": ["Price target USD 250"],
                         }
                     ],
+                    "actionable_signals": [
+                        {
+                            "ticker": "AAPL",
+                            "signal_type": "valuation",
+                            "signal": "Price target",
+                            "value": "USD 250",
+                            "direction": "positive",
+                            "timeframe": "12 months",
+                            "source_text": "Price target USD 250",
+                        }
+                    ],
                 },
             },
             {
@@ -96,11 +107,14 @@ def test_build_run_markdown_report_separates_portfolio_and_non_portfolio_article
     assert "# Daily Stock Article Intelligence - Run #7" in report
     assert "## Executive Summary" in report
     assert "2 article links" in report
+    assert "Article analysis model: gpt-5.4-mini" in report
+    assert "Models: extraction" not in report
     assert "## Portfolio Impact" in report
     assert "AAPL (portfolio)" in report
     assert "Recommendation: buy" in report
     assert "Sentiment: bullish" in report
     assert "AAPL USD 250 12 months" in report
+    assert "Actionable signals: AAPL; valuation; Price target; USD 250; positive; 12 months" in report
     assert "Services margin expanded" in report
     assert "## Non-Portfolio Opportunities" in report
     assert "XYZ (not portfolio)" in report

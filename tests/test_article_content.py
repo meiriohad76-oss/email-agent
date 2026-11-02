@@ -1,7 +1,8 @@
-from email_article_analyzer.article_content import (
+﻿from email_article_analyzer.article_content import (
     ArticleContent,
     ArticleContentFetchError,
     ArticleContentFetcher,
+    BrowserExtensionArticleContentFetcher,
     BrowserArticleContentFetcher,
     ChromeDevtoolsPageReader,
     HybridArticleContentFetcher,
@@ -125,6 +126,48 @@ def test_user_chrome_article_content_fetcher_starts_chrome_once_for_multiple_art
     ]
 
 
+def test_user_chrome_article_content_fetcher_pauses_between_article_pages():
+    opened_urls = []
+    sleeps = []
+    times = iter([100.0, 101.5, 106.0])
+
+    class FakeChromeLauncher:
+        def open_url(self, url):
+            opened_urls.append(url)
+
+    class FakePageReader:
+        def __init__(self):
+            self.calls = []
+
+        def fetch(self, url):
+            self.calls.append(url)
+            return ArticleContent(
+                final_url=url,
+                http_status=0,
+                title="Story title",
+                extracted_text="Authenticated article text.",
+            )
+
+    page_reader = FakePageReader()
+    fetcher = UserChromeArticleContentFetcher(
+        chrome_launcher=FakeChromeLauncher(),
+        page_reader=page_reader,
+        page_pause_seconds=5.0,
+        monotonic=lambda: next(times),
+        sleep=lambda seconds: sleeps.append(seconds),
+    )
+
+    fetcher.fetch("https://seekingalpha.com/article/1")
+    fetcher.fetch("https://seekingalpha.com/article/2")
+
+    assert opened_urls == ["https://seekingalpha.com/article/1"]
+    assert sleeps == [3.5]
+    assert page_reader.calls == [
+        "https://seekingalpha.com/article/1",
+        "https://seekingalpha.com/article/2",
+    ]
+
+
 def test_user_chrome_article_content_fetcher_closes_page_reader():
     class FakeChromeLauncher:
         def open_url(self, url):
@@ -154,6 +197,75 @@ def test_user_chrome_article_content_fetcher_closes_page_reader():
     fetcher.close()
 
     assert page_reader.closed is True
+
+
+def test_browser_extension_article_content_fetcher_uses_user_chrome_bridge():
+    calls = []
+
+    class Result:
+        status = "success"
+        final_url = "https://seekingalpha.com/article/1"
+        title = "Story title"
+        extracted_text = "Authenticated article text from user Chrome."
+        http_status = 200
+        error = None
+
+    class Queue:
+        def submit_article_task(self, url, timeout_seconds):
+            calls.append((url, timeout_seconds))
+            return Result()
+
+    fetcher = BrowserExtensionArticleContentFetcher(
+        browser_task_queue=Queue(),
+        timeout_seconds=99,
+    )
+
+    content = fetcher.fetch("https://seekingalpha.com/article/1")
+
+    assert calls == [("https://seekingalpha.com/article/1", 99)]
+    assert content.title == "Story title"
+    assert content.extracted_text == "Authenticated article text from user Chrome."
+
+
+def test_browser_extension_article_content_fetcher_skips_analysis_when_bridge_missing():
+    class Queue:
+        def submit_article_task(self, url, timeout_seconds):
+            raise RuntimeError("not connected")
+
+    fetcher = BrowserExtensionArticleContentFetcher(browser_task_queue=Queue())
+
+    try:
+        fetcher.fetch("https://seekingalpha.com/article/1")
+    except ArticleContentFetchError as exc:
+        assert exc.stage == "user_chrome_bridge"
+        assert exc.details["skip_analysis"] is True
+    else:
+        raise AssertionError("Expected ArticleContentFetchError")
+
+
+def test_browser_extension_article_content_fetcher_allows_email_fallback_when_page_text_empty():
+    class Result:
+        status = "failed"
+        final_url = "https://seekingalpha.com/article/1"
+        title = "Story title"
+        extracted_text = None
+        http_status = 200
+        error = "No visible article text extracted"
+
+    class Queue:
+        def submit_article_task(self, url, timeout_seconds):
+            return Result()
+
+    fetcher = BrowserExtensionArticleContentFetcher(browser_task_queue=Queue())
+
+    try:
+        fetcher.fetch("https://seekingalpha.com/article/1")
+    except ArticleContentFetchError as exc:
+        assert exc.stage == "user_chrome_bridge"
+        assert "skip_analysis" not in exc.details
+        assert exc.details["page_title"] == "Story title"
+    else:
+        raise AssertionError("Expected ArticleContentFetchError")
 
 
 class FakeLocator:
@@ -204,14 +316,35 @@ class FlakyGotoPage(FakePage):
         return FakeResponse()
 
 
+class AccessDeniedPage(FakePage):
+    def title(self):
+        return "Access to this page has been denied"
+
+    def locator(self, selector):
+        self.calls.append(("locator", selector))
+        return FakeLocator(
+            "Before we continue...\n"
+            "Press & Hold to confirm you are\n"
+            "a human (and not a bot)."
+        )
+
+
 class FakeCdpContext:
     def __init__(self, page):
         self.pages = [page]
+        self.created_pages = []
+
+    def new_page(self):
+        page = self.pages[0] if not self.created_pages else FakePage()
+        self.pages.append(page)
+        self.created_pages.append(page)
+        return page
 
 
 class FakeBrowser:
     def __init__(self, page):
-        self.contexts = [FakeCdpContext(page)]
+        self.context = FakeCdpContext(page)
+        self.contexts = [self.context]
 
 
 class FakeChromium:
@@ -219,12 +352,14 @@ class FakeChromium:
         self.failures_before_success = failures_before_success
         self.calls = 0
         self.page = FakePage()
+        self.browser = None
 
     def connect_over_cdp(self, cdp_url, timeout):
         self.calls += 1
         if self.calls <= self.failures_before_success:
             raise RuntimeError("connect ECONNREFUSED 127.0.0.1:9222")
-        return FakeBrowser(self.page)
+        self.browser = FakeBrowser(self.page)
+        return self.browser
 
 
 class FakePlaywright:
@@ -272,8 +407,26 @@ def test_chrome_devtools_page_reader_reuses_cdp_connection_for_multiple_fetches(
     reader.fetch("https://seekingalpha.com/article/2")
 
     assert playwright.chromium.calls == 1
-    assert ("goto", "https://seekingalpha.com/article/1", "domcontentloaded", 5000) in playwright.chromium.page.calls
-    assert ("goto", "https://seekingalpha.com/article/2", "domcontentloaded", 5000) in playwright.chromium.page.calls
+    assert len(playwright.chromium.browser.context.created_pages) == 2
+
+
+def test_chrome_devtools_page_reader_uses_fresh_page_for_each_fetch():
+    playwright = FakePlaywright(failures_before_success=0)
+    reader = ChromeDevtoolsPageReader(
+        cdp_url="http://127.0.0.1:9222",
+        wait_seconds=5,
+        playwright_factory=lambda: playwright,
+        sleep=lambda seconds: None,
+    )
+
+    reader.fetch("https://seekingalpha.com/article/1")
+    reader.fetch("https://seekingalpha.com/article/2")
+
+    context = playwright.chromium.browser.context
+    assert playwright.chromium.calls == 1
+    assert len(context.created_pages) == 2
+    assert ("goto", "https://seekingalpha.com/article/1", "domcontentloaded", 5000) in context.created_pages[0].calls
+    assert ("goto", "https://seekingalpha.com/article/2", "domcontentloaded", 5000) in context.created_pages[1].calls
 
 
 def test_chrome_devtools_page_reader_retries_navigation_once():
@@ -315,6 +468,26 @@ def test_chrome_devtools_page_reader_reports_navigation_diagnostics_after_retry(
         assert exc.details["page_title"] == "Seeking Alpha Story"
     else:
         raise AssertionError("Expected navigation diagnostics")
+
+
+def test_chrome_devtools_page_reader_rejects_source_bot_challenge_pages():
+    playwright = FakePlaywright(failures_before_success=0)
+    playwright.chromium.page = AccessDeniedPage()
+    reader = ChromeDevtoolsPageReader(
+        cdp_url="http://127.0.0.1:9222",
+        wait_seconds=5,
+        playwright_factory=lambda: playwright,
+        sleep=lambda seconds: None,
+    )
+
+    try:
+        reader.fetch("https://seekingalpha.com/article/1")
+    except ArticleContentFetchError as exc:
+        assert exc.stage == "source_blocked"
+        assert exc.details["skip_analysis"] is True
+        assert exc.details["page_title"] == "Access to this page has been denied"
+    else:
+        raise AssertionError("Expected source-blocked diagnostics")
 
 
 class FakeBrowserContext:
