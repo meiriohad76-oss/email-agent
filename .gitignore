@@ -17,3 +17,7 @@ config/*.pickle
 config/*.token
 config/*token*
 config/*secret*
+outputs/
+dist/
+.venv-windows/
+src/*.egg-info/
