@@ -88,3 +88,21 @@ def test_extract_headline_link_returns_none_when_no_source_link_exists():
         text="",
         source=SEEKING_ALPHA,
     ) is None
+
+
+def test_extract_headline_link_recognizes_large_styled_span_headline():
+    html = """
+    <html>
+      <body>
+        <p><span style="font-size: 26px;"><a href="https://seekingalpha.com/news/4661912-sp-cuts-meta-outlook">S&amp;P cuts Meta outlook</a></span></p>
+        <p><span style="font-size: 16px;"><a href="https://seekingalpha.com/article/999-read-now">Read now</a></span></p>
+      </body>
+    </html>
+    """
+
+    result = extract_headline_link(html=html, text="", source=SEEKING_ALPHA)
+
+    assert result is not None
+    assert result.url == "https://seekingalpha.com/news/4661912-sp-cuts-meta-outlook"
+    assert result.detection_method == "headline_anchor"
+    assert result.detection_confidence == 0.9

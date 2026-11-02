@@ -14,23 +14,53 @@ class ExtractedLink:
     detection_confidence: float
 
 
+_VOID_TAGS = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "wbr"}
+_HEADING_TAGS = {"h1", "h2"}
+_HEADLINE_FONT_PX = 20
+_FONT_SIZE_PATTERN = re.compile(r"font-size:\s*(\d+(?:\.\d+)?)px", re.IGNORECASE)
+
+
 class _AnchorParser(HTMLParser):
+    """Collects link hrefs and whether each sits in a headline.
+
+    A headline is an anchor inside an h1/h2, or inside an element styled with a
+    large font size. Seeking Alpha emails use styled spans instead of headings.
+    """
+
     def __init__(self):
         super().__init__()
-        self.in_heading = False
         self.anchors: list[tuple[str, bool]] = []
+        self._open: list[tuple[str, bool]] = []
+
+    @property
+    def in_heading(self) -> bool:
+        return any(is_headline for _, is_headline in self._open)
 
     def handle_starttag(self, tag, attrs):
-        if tag.lower() in {"h1", "h2"}:
-            self.in_heading = True
-        if tag.lower() == "a":
-            href = dict(attrs).get("href")
+        tag = tag.lower()
+        attributes = dict(attrs)
+        if tag == "a":
+            href = attributes.get("href")
             if href:
                 self.anchors.append((href, self.in_heading))
+        if tag in _VOID_TAGS:
+            return
+        is_headline = tag in _HEADING_TAGS or _is_headline_style(attributes.get("style"))
+        self._open.append((tag, is_headline))
 
     def handle_endtag(self, tag):
-        if tag.lower() in {"h1", "h2"}:
-            self.in_heading = False
+        tag = tag.lower()
+        for index in range(len(self._open) - 1, -1, -1):
+            if self._open[index][0] == tag:
+                del self._open[index:]
+                return
+
+
+def _is_headline_style(style: str | None) -> bool:
+    if not style:
+        return False
+    sizes = [float(size) for size in _FONT_SIZE_PATTERN.findall(style)]
+    return any(size >= _HEADLINE_FONT_PX for size in sizes)
 
 
 def extract_headline_link(html: str, text: str, source: TrustedSource) -> ExtractedLink | None:
