@@ -64,10 +64,16 @@ class OllamaArticleAnalyzer:
 
 
 class LocalFirstArticleAnalyzer:
-    """Local for every article; OpenAI only when a holding is mentioned."""
+    """Local for every article; OpenAI when a holding is mentioned, or when the local model is unsure
+    (confidence < escalate_below) about a watchlist name.
 
-    def __init__(self, local, cloud, holdings: Callable[[], set[str]]):
+    Threshold 0.9, measured 2026-11-14 on 25 watchlist articles: gemma's confidence is never < 0.6 (0/25) and all 5
+    disagreements with GPT came at 0.80; < 0.9 escalated 24% and caught 5/5. Re-check as routing data accumulates."""
+
+    def __init__(self, local, cloud, holdings: Callable[[], set[str]], watchlist: Callable[[], set[str]] | None = None,
+                 escalate_below: float = 0.9):
         self.local, self.cloud, self.holdings = local, cloud, holdings
+        self.watchlist, self.escalate_below = watchlist or (lambda: set()), escalate_below
 
     def analyze_article(self, url, source_key, email_subject, article_title, article_text, model=None) -> ArticleAnalysisResult:
         args = (url, source_key, email_subject, article_title, article_text)
@@ -80,14 +86,38 @@ class LocalFirstArticleAnalyzer:
             return _tag(res, {"path": "cloud_fallback", "local_error": str(exc)[:200]})
         held = {t.upper() for t in self.holdings()}
         hit = sorted(set(loc.mentioned_tickers) & held)
-        if not hit or self.cloud is None:
-            return _tag(loc, {"path": "local", "holdings_mentioned": hit})
+        watch = sorted(set(loc.mentioned_tickers) & {t.upper() for t in self.watchlist()}) if not hit else []
+        unsure = bool(watch) and loc.confidence < self.escalate_below
+        if (not hit and not unsure) or self.cloud is None:
+            return _tag(loc, {"path": "local", "holdings_mentioned": hit, "watch_mentioned": watch,
+                              "local_confidence": loc.confidence})
+        reason = "holding" if hit else "unsure_watchlist"
         try:
             res = self.cloud.analyze_article(*args, model=model)
         except Exception as exc:
-            return _tag(loc, {"path": "local_after_cloud_error", "holdings_mentioned": hit, "cloud_error": str(exc)[:200]})
-        return _tag(res, {"path": "cloud", "holdings_mentioned": hit, "local_stance": loc.stance,
-                          "local_tickers": loc.mentioned_tickers})
+            return _tag(loc, {"path": "local_after_cloud_error", "reason": reason, "holdings_mentioned": hit,
+                              "cloud_error": str(exc)[:200]})
+        return _tag(res, {"path": "cloud", "reason": reason, "holdings_mentioned": hit, "watch_mentioned": watch,
+                          "local_stance": loc.stance, "local_confidence": loc.confidence, "local_tickers": loc.mentioned_tickers})
+
+
+def file_tickers(path: str) -> Callable[[], set[str]]:
+    """Read a one-symbol-per-line file (written nightly by the agency), cached until the file changes."""
+    import os
+    cache: dict[str, Any] = {"mtime": None, "syms": set()}
+
+    def load() -> set[str]:
+        p = os.path.expanduser(path)
+        try:
+            m = os.path.getmtime(p)
+        except OSError:
+            return set()
+        if m != cache["mtime"]:
+            with open(p, encoding="utf-8") as f:
+                cache["syms"] = {ln.strip().upper() for ln in f if ln.strip() and not ln.startswith("#")}
+            cache["mtime"] = m
+        return cache["syms"]
+    return load
 
 
 def _tag(res: ArticleAnalysisResult, routing: dict[str, Any]) -> ArticleAnalysisResult:

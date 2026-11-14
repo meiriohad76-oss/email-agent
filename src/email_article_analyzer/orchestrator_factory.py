@@ -72,7 +72,7 @@ def create_run_orchestrator(
         if os.getenv("APP_ARTICLE_ROUTING", "local_first") == "local_first":
             # Cost control: local model for every article, OpenAI only for articles about holdings.
             # The OpenAI precheck is dropped (it marked 1046/1047 articles relevant and gated nothing).
-            from email_article_analyzer.local_routing import LocalFirstArticleAnalyzer, OllamaArticleAnalyzer
+            from email_article_analyzer.local_routing import LocalFirstArticleAnalyzer, OllamaArticleAnalyzer, file_tickers
             from email_article_analyzer.run_orchestration import _active_watchlist_tickers
             article_analyzer = LocalFirstArticleAnalyzer(
                 local=OllamaArticleAnalyzer(
@@ -81,6 +81,8 @@ def create_run_orchestrator(
                 ),
                 cloud=article_analyzer,
                 holdings=lambda: _active_watchlist_tickers(config.database_path),
+                watchlist=file_tickers(os.getenv("APP_WATCH_TICKERS_FILE", "~/MeiriServer/Agency/watch_tickers.txt")),
+                escalate_below=float(os.getenv("APP_ESCALATE_BELOW", "0.9")),
             )
             article_prechecker = None
         report_synthesizer = OpenAIRunReportSynthesizer(

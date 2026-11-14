@@ -54,3 +54,31 @@ def test_fallbacks_both_ways():
 def test_bad_stance_becomes_unclear():
     r = _ollama({"stance": "moon", "confidence": 2, "tickers": [], "summary": "", "evidence": []}).analyze_article(*ARGS)
     assert r.stance == "unclear" and r.confidence <= 1
+
+
+def test_unsure_watchlist_article_escalates_but_confident_one_does_not():
+    cloud = Cloud()
+    unsure = LocalFirstArticleAnalyzer(_ollama({"stance": "hold", "confidence": 0.8, "tickers": ["AMD"], "summary": "s",
+                                                "evidence": []}), cloud, lambda: {"ORCL"}, lambda: {"AMD"})
+    r = unsure.analyze_article(*ARGS)
+    assert cloud.calls == 1 and r.raw_response["routing"]["reason"] == "unsure_watchlist"
+    sure = LocalFirstArticleAnalyzer(_ollama({"stance": "buy_watch", "confidence": 0.95, "tickers": ["AMD"], "summary": "s",
+                                              "evidence": ["a", "b"]}), cloud, lambda: {"ORCL"}, lambda: {"AMD"})
+    r2 = sure.analyze_article(*ARGS)
+    assert cloud.calls == 1 and r2.provider == "ollama"
+    other = LocalFirstArticleAnalyzer(_ollama({"stance": "unclear", "confidence": 0.2, "tickers": ["XYZ"], "summary": "s",
+                                               "evidence": []}), cloud, lambda: {"ORCL"}, lambda: {"AMD"})
+    assert other.analyze_article(*ARGS).provider == "ollama" and cloud.calls == 1   # unsure but not tracked: stays free
+
+
+def test_file_tickers_reads_and_caches(tmp_path):
+    import os, time
+    from email_article_analyzer.local_routing import file_tickers
+    f = tmp_path / "w.txt"
+    f.write_text("# header\nAMD\nnvda\n")
+    load = file_tickers(str(f))
+    assert load() == {"AMD", "NVDA"}
+    f.write_text("TSM\n")
+    os.utime(f, (time.time() + 5, time.time() + 5))
+    assert load() == {"TSM"}
+    assert file_tickers(str(tmp_path / "missing.txt"))() == set()
