@@ -16,6 +16,7 @@ from email_article_analyzer.api.research import router as research_router
 from email_article_analyzer.api.source_logins import router as source_logins_router
 from email_article_analyzer.api.status import router as status_router
 from email_article_analyzer.api.watchlist import router as watchlist_router
+from email_article_analyzer.api.agency import router as agency_router
 from email_article_analyzer.article_content import PersistentBrowserSession
 from email_article_analyzer.browser_tasks import BrowserTaskQueue
 from email_article_analyzer.config import AppConfig
@@ -69,6 +70,7 @@ def create_app(database_path: str | None = None, run_orchestrator=None) -> FastA
     app.include_router(runs_router)
     app.include_router(research_router)
     app.include_router(watchlist_router)
+    app.include_router(agency_router)
     return app
 
 
