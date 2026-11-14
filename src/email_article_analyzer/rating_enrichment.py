@@ -1079,11 +1079,11 @@ def _unparsed_rating_failure_reason(
     ]
     if any(marker in normalized for marker in bot_markers):
         return "Rating page blocked by source bot verification"
+    # Only SA's real paywall wording. Generic words such as "subscribe now" / "view ratings" appear in SA's normal menus
+    # and promos on every page, which mislabelled slow-loading pages as gated (Meiri checked: they open fine).
     locked_markers = [
         "go premium to see",
         "locked. go premium",
-        "view ratings",
-        "subscribe now",
     ]
     if any(marker in normalized for marker in locked_markers):
         return "Rating page is locked or premium-gated"

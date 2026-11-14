@@ -10,7 +10,7 @@ EXTENSION_DIR = Path("browser-extension")
 def test_browser_extension_manifest_supports_configurable_pi_backend():
     manifest = json.loads((EXTENSION_DIR / "manifest.json").read_text(encoding="utf-8"))
 
-    assert manifest["version"] == "0.1.15"
+    assert manifest["version"] == "0.1.16"
     assert "storage" in manifest["permissions"]
     assert "windows" in manifest["permissions"]
     assert "http://*/*" in manifest["host_permissions"]

@@ -763,6 +763,9 @@ function hasUsefulExtractedText(article) {
   if (!/https?:\/\/(www\.)?seekingalpha\.com\/symbol\/[^/]+\/ratings/i.test(url)) {
     return true;
   }
+  if (/\/ratings\/quant-ratings/i.test(url) && /QUANT RATING HISTORY/.test(text) && !/\d{2}\/\d{2}\/\d{4}\s+[\d.,]+/.test(text)) {
+    return false;   // history table not rendered yet: retry instead of reading a half-loaded page
+  }
   if (/\/ratings\/sell-side-ratings/i.test(url)) {
     return /(?:Average\s+)?Price Target\s*\$?[0-9]+(?:\.[0-9]+)?/i.test(text);
   }
@@ -793,7 +796,7 @@ async function captureSaExport() {
     };
     let button = null;
     for (let i = 0; i < 40 && !button; i += 1) {
-      button = Array.from(document.querySelectorAll("button")).find((b) => b.textContent.trim() === "Download");
+      button = Array.from(document.querySelectorAll("button")).find((b) => /^Download( as Excel)?$/i.test(b.textContent.trim()));
       if (!button) await new Promise((r) => setTimeout(r, 500));
     }
     if (!button) return { error: "Download button not found (logged out?)" };
