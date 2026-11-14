@@ -2,7 +2,10 @@ from pathlib import Path
 
 from google_auth_oauthlib.flow import InstalledAppFlow
 
-GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
+GMAIL_SCOPES = [
+    "https://www.googleapis.com/auth/gmail.modify",
+    "https://www.googleapis.com/auth/gmail.send",
+]
 
 
 def create_gmail_token(

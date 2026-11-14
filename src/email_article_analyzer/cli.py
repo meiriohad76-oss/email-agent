@@ -13,6 +13,8 @@ from email_article_analyzer.gmail import FAILED_LABEL
 from email_article_analyzer.orchestrator_factory import _build_gmail_service
 from email_article_analyzer.providers.gmail_api import GmailApiProvider
 from email_article_analyzer.repositories import RunRepository
+from email_article_analyzer.routine import ROUTINE_MAX_NEW_MESSAGES
+from email_article_analyzer.routine import run_routine
 from google.oauth2.credentials import Credentials
 
 
@@ -65,6 +67,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     gmail_auth_parser.add_argument("--credentials-path")
     gmail_auth_parser.add_argument("--token-path")
+    routine_parser = subparsers.add_parser(
+        "run-routine",
+        help="Run one scheduled analysis and email the PDF report to your Gmail",
+    )
+    routine_parser.add_argument(
+        "--max-new-messages",
+        type=int,
+        default=ROUTINE_MAX_NEW_MESSAGES,
+        help="Maximum new unread emails to process in this run",
+    )
+    routine_parser.add_argument(
+        "--resend-run",
+        type=int,
+        default=None,
+        help="Skip analysis and only rebuild and email the report for an existing run",
+    )
     args = parser.parse_args(argv)
     if args.command == "setup-status":
         _print_setup_status()
@@ -129,6 +147,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"Gmail token saved to {token_path}")
         print("Recheck with: python -m email_article_analyzer.cli setup-status")
         return 0
+    if args.command == "run-routine":
+        return run_routine(
+            AppConfig.from_env(),
+            max_new_messages=args.max_new_messages,
+            resend_run_id=args.resend_run,
+        )
     return 2
 
 

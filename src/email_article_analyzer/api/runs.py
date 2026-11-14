@@ -3,7 +3,7 @@ import inspect
 import json
 
 from fastapi import APIRouter, HTTPException, Request, Response
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from email_article_analyzer.api.status import missing_essential_providers
 from email_article_analyzer.api.status import provider_status
@@ -30,6 +30,7 @@ router = APIRouter(prefix="/api/runs", tags=["runs"])
 class CreateRunRequest(BaseModel):
     extraction_model: str | None = None
     summary_model: str | None = None
+    max_new_messages: int | None = Field(default=None, ge=1)
 
     @field_validator("extraction_model", "summary_model", mode="before")
     @classmethod
@@ -100,6 +101,7 @@ def create_run(payload: CreateRunRequest, request: Request) -> dict[str, Any]:
                     extraction_model=extraction_model,
                     summary_model=summary_model,
                     on_run_started=run_control.set_active_run_id,
+                    max_new_messages=payload.max_new_messages,
                 )
             except ActiveRunError as exc:
                 raise HTTPException(

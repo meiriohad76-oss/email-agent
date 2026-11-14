@@ -60,6 +60,7 @@ class RunOrchestrator:
         extraction_model: str | None,
         summary_model: str | None,
         on_run_started=None,
+        max_new_messages: int | None = None,
     ) -> RunResult:
         extraction_model = normalize_model_name(
             extraction_model,
@@ -115,6 +116,15 @@ class RunOrchestrator:
                             "processed_count": processed_count,
                             "candidate_count": discovered_count,
                         },
+                    )
+                    break
+                if max_new_messages is not None and processed_count >= max_new_messages:
+                    self.run_repository.add_event(
+                        run_id=run_id,
+                        event_type="run_message_cap_reached",
+                        stage="control",
+                        message="Per-run message cap reached; remaining unread emails wait for the next run",
+                        details={"max_new_messages": max_new_messages, "processed_count": processed_count},
                     )
                     break
                 try:
