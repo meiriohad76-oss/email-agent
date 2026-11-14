@@ -22,6 +22,11 @@ class CompleteBrowserTaskRequest(BaseModel):
     error: str | None = None
 
 
+class SaExportRequest(BaseModel):
+    portfolio_id: str
+    timeout_seconds: float = 120.0
+
+
 class TestExtractBrowserTaskRequest(BaseModel):
     url: str
     timeout_seconds: float = 120.0
@@ -47,6 +52,7 @@ def next_browser_task(request: Request) -> dict[str, Any]:
         "status": "task",
         "task_id": task.task_id,
         "url": task.url,
+        "kind": task.kind,
     }
 
 
@@ -104,3 +110,26 @@ def test_extract_browser_task(
     if payload.include_full_text:
         payload_data["extracted_text"] = text
     return payload_data
+
+
+@router.post("/sa-export")
+def sa_export_browser_task(payload: SaExportRequest, request: Request) -> dict[str, Any]:
+    """Capture a Seeking Alpha portfolio/watchlist Excel export in the user's logged-in Chrome.
+
+    The extension opens the holdings page, clicks SA's own Download button, catches the file in memory
+    (nothing is saved to ~/Downloads) and returns it base64-encoded. Used by the agency Holdings Keeper.
+    """
+    if not payload.portfolio_id.isdigit():
+        return {"status": "failed", "error": "portfolio_id must be numeric", "xlsx_b64": None}
+    queue = request.app.state.browser_task_queue
+    url = f"https://seekingalpha.com/account/portfolio/holdings?portfolioId={payload.portfolio_id}"
+    try:
+        result = queue.submit_article_task(url, timeout_seconds=payload.timeout_seconds, kind="sa_export")
+    except (RuntimeError, TimeoutError) as exc:
+        return {"status": "failed", "error": str(exc), "xlsx_b64": None}
+    return {
+        "status": result.status,
+        "error": result.error,
+        "final_url": result.final_url,
+        "xlsx_b64": result.extracted_text if result.status == "success" else None,
+    }

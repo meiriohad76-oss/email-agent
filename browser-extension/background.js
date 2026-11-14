@@ -775,6 +775,62 @@ function hasUsefulExtractedText(article) {
   );
 }
 
+
+// Agency Holdings Keeper: capture the Seeking Alpha Excel export in memory (runs in the page, MAIN world).
+// SA builds the file in the browser; we catch the Blob when the page creates it and suppress the real download.
+async function captureSaExport() {
+  let captured = null;
+  const origCreate = URL.createObjectURL;
+  const origClick = HTMLAnchorElement.prototype.click;
+  try {
+    URL.createObjectURL = function (blob) {
+      if (blob instanceof Blob) captured = blob;
+      return origCreate.apply(this, arguments);
+    };
+    HTMLAnchorElement.prototype.click = function () {
+      if (this.download && captured) return;
+      return origClick.apply(this, arguments);
+    };
+    let button = null;
+    for (let i = 0; i < 40 && !button; i += 1) {
+      button = Array.from(document.querySelectorAll("button")).find((b) => b.textContent.trim() === "Download");
+      if (!button) await new Promise((r) => setTimeout(r, 500));
+    }
+    if (!button) return { error: "Download button not found (logged out?)" };
+    button.click();
+    for (let i = 0; i < 80 && !captured; i += 1) await new Promise((r) => setTimeout(r, 250));
+    if (!captured) return { error: "Export file was not produced" };
+    const b64 = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(",")[1] || "");
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(captured);
+    });
+    return { b64, size: captured.size };
+  } finally {
+    URL.createObjectURL = origCreate;
+    HTMLAnchorElement.prototype.click = origClick;
+  }
+}
+
+async function runSaExportTask(task, tab) {
+  const [result] = await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    func: captureSaExport,
+    world: "MAIN",
+  });
+  const out = result?.result || {};
+  await completeTask({
+    task_id: task.task_id,
+    status: out.b64 ? "success" : "failed",
+    final_url: tab.url || task.url,
+    title: "sa_export",
+    extracted_text: out.b64 || null,
+    http_status: 200,
+    error: out.b64 ? null : out.error || "SA export capture failed",
+  });
+}
+
 async function runTask(task) {
   let tab;
   try {
@@ -786,6 +842,10 @@ async function runTask(task) {
     });
     await waitForTabComplete(tab.id);
     await sleep(PAGE_SETTLE_MS);
+    if (task.kind === "sa_export") {
+      await runSaExportTask(task, tab);
+      return;
+    }
     const article = await extractArticleFromTab(tab.id);
     await completeTask({
       task_id: task.task_id,

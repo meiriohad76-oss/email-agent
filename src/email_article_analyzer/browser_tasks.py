@@ -9,6 +9,7 @@ from uuid import uuid4
 class BrowserArticleTask:
     task_id: str
     url: str
+    kind: str = "article"  # "article" = extract page text; "sa_export" = capture the SA portfolio Excel export (base64)
 
 
 @dataclass(frozen=True)
@@ -71,11 +72,12 @@ class BrowserTaskQueue:
         self,
         url: str,
         timeout_seconds: float = 120.0,
+        kind: str = "article",
     ) -> BrowserArticleTaskResult:
         with self._condition:
             if not self._is_extension_connected_locked():
                 raise RuntimeError("User Chrome extension is not connected")
-            task = BrowserArticleTask(task_id=str(uuid4()), url=url)
+            task = BrowserArticleTask(task_id=str(uuid4()), url=url, kind=kind)
             self._pending.append(task)
             self._condition.notify_all()
             deadline = self.clock() + timeout_seconds
