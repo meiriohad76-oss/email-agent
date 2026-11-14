@@ -55,3 +55,14 @@ def test_sa_export_endpoint_rejects_non_numeric_id():
     app.state.browser_task_queue = BrowserTaskQueue()
     r = TestClient(app).post("/api/browser-tasks/sa-export", json={"portfolio_id": "1;rm"})
     assert r.json()["status"] == "failed"
+
+
+def test_sa_screen_export_rejects_other_urls():
+    from email_article_analyzer.api.browser_tasks import router
+    from fastapi import FastAPI
+
+    app = FastAPI()
+    app.include_router(router)
+    app.state.browser_task_queue = BrowserTaskQueue()
+    r = TestClient(app).post("/api/browser-tasks/sa-screen-export", json={"url": "https://evil.example/screeners/x"})
+    assert r.json()["status"] == "failed"

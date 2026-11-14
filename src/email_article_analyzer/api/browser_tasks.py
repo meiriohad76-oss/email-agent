@@ -133,3 +133,23 @@ def sa_export_browser_task(payload: SaExportRequest, request: Request) -> dict[s
         "final_url": result.final_url,
         "xlsx_b64": result.extracted_text if result.status == "success" else None,
     }
+
+
+class SaScreenExportRequest(BaseModel):
+    url: str
+    timeout_seconds: float = 150.0
+
+
+@router.post("/sa-screen-export")
+def sa_screen_export(payload: SaScreenExportRequest, request: Request) -> dict[str, Any]:
+    """Capture a Seeking Alpha *screener* 'Download as Excel' export (agency: weekly idea lists). seekingalpha.com/screeners only."""
+    import re as _re
+    if not _re.fullmatch(r"https://seekingalpha\.com/screeners/[A-Za-z0-9\-/_]+", payload.url):
+        return {"status": "failed", "error": "only seekingalpha.com/screeners URLs", "xlsx_b64": None}
+    queue = request.app.state.browser_task_queue
+    try:
+        result = queue.submit_article_task(payload.url, timeout_seconds=payload.timeout_seconds, kind="sa_export")
+    except (RuntimeError, TimeoutError) as exc:
+        return {"status": "failed", "error": str(exc), "xlsx_b64": None}
+    return {"status": result.status, "error": result.error,
+            "xlsx_b64": result.extracted_text if result.status == "success" else None}
