@@ -90,7 +90,8 @@ def test_create_run_orchestrator_wires_real_gmail_provider(tmp_path):
     assert "https://www.googleapis.com/auth/gmail.modify" in FakeCredentials.calls[0][1]
 
 
-def test_create_run_orchestrator_wires_openai_analyzer_when_api_key_exists(tmp_path):
+def test_create_run_orchestrator_wires_openai_analyzer_when_api_key_exists(tmp_path, monkeypatch):
+    monkeypatch.setenv("APP_ARTICLE_ROUTING", "openai")
     token_path = tmp_path / "gmail_token.json"
     token_path.write_text("{}", encoding="utf-8")
     config = AppConfig(
@@ -308,3 +309,25 @@ def test_create_article_content_fetcher_can_disable_tls_verification():
     )
 
     assert calls["verify"] is False
+
+
+def test_default_routing_is_local_first_with_openai_for_holdings(tmp_path, monkeypatch):
+    from email_article_analyzer.local_routing import LocalFirstArticleAnalyzer
+    monkeypatch.delenv("APP_ARTICLE_ROUTING", raising=False)
+    token_path = tmp_path / "gmail_token.json"
+    token_path.write_text("{}", encoding="utf-8")
+    config = AppConfig(
+        database_path=str(tmp_path / "app.db"),
+        dashboard_password="secret",
+        polygon_api_key=None,
+        openai_api_key="openai-key",
+        gmail_credentials_path=str(tmp_path / "gmail_credentials.json"),
+        gmail_token_path=str(token_path),
+    )
+    orchestrator = create_run_orchestrator(
+        config, config.database_path, credentials_cls=FakeCredentials, service_builder=fake_build,
+        openai_client_factory=fake_openai_client_factory,
+    )
+    assert isinstance(orchestrator.article_analyzer, LocalFirstArticleAnalyzer)
+    assert orchestrator.article_analyzer.cloud.client["api_key"] == "openai-key"
+    assert orchestrator.article_prechecker is None
