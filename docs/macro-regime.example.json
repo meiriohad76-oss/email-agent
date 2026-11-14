@@ -1,0 +1,68 @@
+{
+  "enabled": true,
+  "as_of": "2026-01-01",
+  "title": "Example probability-weighted macro regime",
+  "confidence": "example-only",
+  "model": {
+    "method": "Probability-weighted sector sensitivity overlay",
+    "formula": "macro_score = sector_model_score + sum(scenario_probability * sector_impact)",
+    "rank_scope": "Eligible companies across all configured sectors",
+    "maximum_scenario_impact": 10,
+    "stale_after_days": 45,
+    "limitations": "Example values only. Replace with dated, source-backed scenarios before use."
+  },
+  "sector_notes": {
+    "Biotechnology": "Example sensitivity; replace with a current assessment.",
+    "Consumer Staples": "Example sensitivity; replace with a current assessment.",
+    "Energy": "Example sensitivity; replace with a current assessment.",
+    "Healthcare": "Example sensitivity; replace with a current assessment.",
+    "Industrials": "Example sensitivity; replace with a current assessment.",
+    "Materials": "Example sensitivity; replace with a current assessment.",
+    "Utilities": "Example sensitivity; replace with a current assessment."
+  },
+  "scenarios": [
+    {
+      "id": "base",
+      "label": "Example base case",
+      "probability": 0.6,
+      "sector_impacts": {
+        "Biotechnology": 0,
+        "Consumer Staples": 0,
+        "Energy": 0,
+        "Healthcare": 0,
+        "Industrials": 0,
+        "Materials": 0,
+        "Utilities": 0
+      }
+    },
+    {
+      "id": "upside",
+      "label": "Example upside case",
+      "probability": 0.2,
+      "sector_impacts": {
+        "Biotechnology": 0,
+        "Consumer Staples": 0,
+        "Energy": 0,
+        "Healthcare": 0,
+        "Industrials": 0,
+        "Materials": 0,
+        "Utilities": 0
+      }
+    },
+    {
+      "id": "downside",
+      "label": "Example downside case",
+      "probability": 0.2,
+      "sector_impacts": {
+        "Biotechnology": 0,
+        "Consumer Staples": 0,
+        "Energy": 0,
+        "Healthcare": 0,
+        "Industrials": 0,
+        "Materials": 0,
+        "Utilities": 0
+      }
+    }
+  ],
+  "sources": []
+}

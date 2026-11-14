@@ -69,6 +69,15 @@ def provider_status(config: AppConfig) -> dict[str, Any]:
             if source_login_confirmation.status == "ready"
             else ["Confirm source website sessions before extraction"],
         ),
+        "investing_pro": _provider(
+            "ready",
+            [
+                "Investing.com instrument URLs are discovered automatically and cached during enrichment",
+            ],
+            [
+                "Log in to Investing.com / InvestingPro in the Chrome bridge profile before extraction",
+            ],
+        ),
     }
     overall_status = "ready"
     if any(provider["status"] != "ready" for provider in providers.values()):

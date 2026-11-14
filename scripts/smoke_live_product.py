@@ -3,8 +3,8 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from email_article_analyzer.application import create_app
 from email_article_analyzer.db import initialize_database
-from email_article_analyzer.main import create_app
 from email_article_analyzer.repositories import GmailDiscoveryRepository, RunRepository
 
 

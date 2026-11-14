@@ -20,6 +20,20 @@ dependencies = [
   "playwright>=1.45",
 ]
 
+[project.scripts]
+email-article-analyzer = "email_article_analyzer.cli:main"
+
+[tool.setuptools.package-data]
+email_article_analyzer = ["static/*.html", "static/*.css", "static/*.js"]
+
+[tool.setuptools.data-files]
+"browser-extension" = [
+  "browser-extension/background.js",
+  "browser-extension/manifest.json",
+  "browser-extension/options.html",
+  "browser-extension/options.js",
+]
+
 [project.optional-dependencies]
 dev = [
   "pytest>=8.2",

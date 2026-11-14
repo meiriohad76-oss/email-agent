@@ -15,6 +15,12 @@ class AppConfig:
     gmail_token_path: str
     tls_verify: bool = True
     source_login_confirmation_path: str = "data/source_login_confirmed.json"
+    article_page_pause_seconds: float = 6.0
+    article_chrome_mode: str = "app_profile"
+    article_chrome_profile_path: str = "data/user-chrome-profile"
+    article_chrome_cdp_url: str = "http://127.0.0.1:9222"
+    gmail_api_timeout_seconds: float = 20.0
+    investing_mapping_path: str = "data/investing_instrument_mapping.csv"
 
     @classmethod
     def from_env(cls) -> "AppConfig":
@@ -36,6 +42,31 @@ class AppConfig:
                 "SOURCE_LOGIN_CONFIRMATION_PATH",
                 "data/source_login_confirmed.json",
             ),
+            article_page_pause_seconds=_read_float_env(
+                "ARTICLE_PAGE_PAUSE_SECONDS",
+                default=6.0,
+            ),
+            article_chrome_mode=_read_choice_env(
+                "ARTICLE_CHROME_MODE",
+                default="app_profile",
+                choices={"app_profile", "existing_debug"},
+            ),
+            article_chrome_profile_path=os.getenv(
+                "ARTICLE_CHROME_PROFILE_PATH",
+                "data/user-chrome-profile",
+            ),
+            article_chrome_cdp_url=os.getenv(
+                "ARTICLE_CHROME_CDP_URL",
+                "http://127.0.0.1:9222",
+            ),
+            gmail_api_timeout_seconds=_read_float_env(
+                "GMAIL_API_TIMEOUT_SECONDS",
+                default=20.0,
+            ),
+            investing_mapping_path=os.getenv(
+                "INVESTING_MAPPING_PATH",
+                "data/investing_instrument_mapping.csv",
+            ),
         )
 
 
@@ -44,3 +75,21 @@ def _read_bool_env(name: str, default: bool) -> bool:
     if value is None:
         return default
     return value.strip().lower() not in {"0", "false", "no", "off"}
+
+
+def _read_float_env(name: str, default: float) -> float:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except ValueError:
+        return default
+
+
+def _read_choice_env(name: str, default: str, choices: set[str]) -> str:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    normalized = value.strip().lower()
+    return normalized if normalized in choices else default

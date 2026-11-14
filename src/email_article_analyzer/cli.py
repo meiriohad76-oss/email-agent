@@ -1,11 +1,13 @@
 import argparse
 from collections.abc import Sequence
 from pathlib import Path
+import sys
 
 from email_article_analyzer.api.status import provider_status
 from email_article_analyzer.auth import GMAIL_SCOPES
 from email_article_analyzer.auth import create_gmail_token
 from email_article_analyzer.config import AppConfig
+from email_article_analyzer.db_backup import backup_sqlite_database
 from email_article_analyzer.gmail import ANALYZED_LABEL
 from email_article_analyzer.gmail import FAILED_LABEL
 from email_article_analyzer.orchestrator_factory import _build_gmail_service
@@ -35,6 +37,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("setup-status", help="Print first-run setup readiness")
     subparsers.add_parser(
+        "browser-extension-path",
+        help="Print the Chrome bridge extension directory for Load unpacked",
+    )
+    subparsers.add_parser(
         "reset-analyzed-state",
         help="Clear local article analyses so Gmail messages can be analyzed again",
     )
@@ -43,6 +49,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Remove app processing labels from Gmail messages and mark them unread",
     )
     gmail_reset_parser.add_argument("--max-results", type=int, default=500)
+    gmail_reset_parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="Actually modify Gmail. Without this flag the command prints a dry run.",
+    )
     gmail_reset_parser.add_argument(
         "--keep-read",
         action="store_true",
@@ -58,10 +69,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "setup-status":
         _print_setup_status()
         return 0
+    if args.command == "browser-extension-path":
+        print(_browser_extension_path())
+        return 0
     if args.command == "reset-analyzed-state":
         config = AppConfig.from_env()
+        backup_path = backup_sqlite_database(
+            config.database_path,
+            reason="before-reset-analyzed-state",
+        )
         reset_count = RunRepository(config.database_path).reset_analyzed_state()
         suffix = "" if reset_count == 1 else "s"
+        print(f"Database backup saved to {backup_path}")
         print(f"Cleared {reset_count} local article analysis row{suffix}.")
         print("Gmail labels were not changed.")
         return 0
@@ -79,6 +98,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         label_names = [ANALYZED_LABEL, FAILED_LABEL]
         query = _processed_labels_query(label_names)
         mark_unread = not args.keep_read
+        count_messages = getattr(provider, "count_messages", None)
+        candidate_count = (
+            count_messages(query=query, max_results=args.max_results)
+            if callable(count_messages)
+            else "unknown"
+        )
+        print(f"Gmail query: {query}")
+        print(f"Matching messages up to limit: {candidate_count}")
+        if not args.yes:
+            print("Dry run only. Re-run with --yes to remove labels and update read state.")
+            return 0
         reset_count = provider.reset_processing_labels(
             query=query,
             label_names=label_names,
@@ -108,6 +138,18 @@ def _processed_labels_query(label_names: list[str]) -> str:
         for label_name in label_names
     ]
     return " OR ".join(terms)
+
+
+def _browser_extension_path() -> str:
+    candidates = [
+        Path(sys.prefix) / "browser-extension",
+        Path(__file__).resolve().parents[2] / "browser-extension",
+        Path.cwd() / "browser-extension",
+    ]
+    for candidate in candidates:
+        if (candidate / "manifest.json").exists():
+            return str(candidate)
+    return str(candidates[0])
 
 
 if __name__ == "__main__":

@@ -111,15 +111,23 @@ class UserChromeArticleContentFetcher:
         page_reader=None,
         cdp_url: str = "http://127.0.0.1:9222",
         wait_seconds: float = 20.0,
+        page_pause_seconds: float = 0.0,
+        monotonic=time.monotonic,
+        sleep=time.sleep,
     ):
         self.chrome_launcher = chrome_launcher or _default_article_chrome_launcher()
         self.page_reader = page_reader or ChromeDevtoolsPageReader(
             cdp_url=cdp_url,
             wait_seconds=wait_seconds,
         )
+        self.page_pause_seconds = page_pause_seconds
+        self.monotonic = monotonic
+        self.sleep = sleep
         self._chrome_started = False
+        self._last_fetch_started_at: float | None = None
 
     def fetch(self, url: str) -> ArticleContent:
+        self._pause_between_pages()
         if not self._chrome_started:
             self.chrome_launcher.open_url(url)
             self._chrome_started = True
@@ -129,6 +137,81 @@ class UserChromeArticleContentFetcher:
         closer = getattr(self.page_reader, "close", None)
         if callable(closer):
             closer()
+
+    def _pause_between_pages(self) -> None:
+        now = self.monotonic()
+        if self._last_fetch_started_at is not None and self.page_pause_seconds > 0:
+            elapsed = now - self._last_fetch_started_at
+            remaining = self.page_pause_seconds - elapsed
+            if remaining > 0:
+                self.sleep(remaining)
+                now = self.monotonic()
+        self._last_fetch_started_at = now
+
+
+class BrowserExtensionArticleContentFetcher:
+    def __init__(
+        self,
+        browser_task_queue,
+        timeout_seconds: float = 120.0,
+        page_pause_seconds: float = 0.0,
+        monotonic=time.monotonic,
+        sleep=time.sleep,
+    ):
+        self.browser_task_queue = browser_task_queue
+        self.timeout_seconds = timeout_seconds
+        self.page_pause_seconds = page_pause_seconds
+        self.monotonic = monotonic
+        self.sleep = sleep
+        self._last_fetch_started_at: float | None = None
+
+    def fetch(self, url: str) -> ArticleContent:
+        self._pause_between_pages()
+        try:
+            result = self.browser_task_queue.submit_article_task(
+                url,
+                timeout_seconds=self.timeout_seconds,
+            )
+        except Exception as exc:
+            raise ArticleContentFetchError(
+                f"User Chrome article extraction unavailable: {exc}",
+                stage="user_chrome_bridge",
+                details={
+                    "url": url,
+                    "skip_analysis": True,
+                },
+            ) from exc
+        if result.status != "success" or not result.extracted_text:
+            raise ArticleContentFetchError(
+                f"User Chrome article extraction failed: {result.error or result.status}",
+                stage="user_chrome_bridge",
+                details={
+                    "url": url,
+                    "final_url": result.final_url,
+                    "page_title": result.title,
+                },
+            )
+        content = ArticleContent(
+            final_url=result.final_url or url,
+            http_status=int(result.http_status or 200),
+            title=result.title,
+            extracted_text=result.extracted_text,
+        )
+        _raise_if_source_blocked(url, content)
+        return content
+
+    def close(self) -> None:
+        return None
+
+    def _pause_between_pages(self) -> None:
+        now = self.monotonic()
+        if self._last_fetch_started_at is not None and self.page_pause_seconds > 0:
+            elapsed = now - self._last_fetch_started_at
+            remaining = self.page_pause_seconds - elapsed
+            if remaining > 0:
+                self.sleep(remaining)
+                now = self.monotonic()
+        self._last_fetch_started_at = now
 
 
 class ChromeDevtoolsPageReader:
@@ -149,13 +232,17 @@ class ChromeDevtoolsPageReader:
 
     def fetch(self, url: str) -> ArticleContent:
         page = self._ensure_page()
-        response = self._navigate_with_retry(page, url)
         try:
-            page.wait_for_load_state("networkidle", timeout=5000)
-        except Exception:
-            pass
-        try:
-            return _content_from_page(page, response)
+            response = self._navigate_with_retry(page, url)
+            try:
+                page.wait_for_load_state("networkidle", timeout=5000)
+            except Exception:
+                pass
+            content = _content_from_page(page, response)
+            _raise_if_source_blocked(url, content)
+            return content
+        except ArticleContentFetchError:
+            raise
         except Exception as exc:
             raise ArticleContentFetchError(
                 f"Article extraction failed: {exc}",
@@ -165,6 +252,8 @@ class ChromeDevtoolsPageReader:
                     **_page_diagnostics(page),
                 },
             ) from exc
+        finally:
+            self._close_page(page)
 
     def close(self) -> None:
         self._page = None
@@ -219,19 +308,31 @@ class ChromeDevtoolsPageReader:
         )
 
     def _open_page(self, browser):
-        deadline = time.monotonic() + self.wait_seconds
-        while time.monotonic() < deadline:
-            for context in browser.contexts:
-                if context.pages:
-                    return context.pages[-1]
-            self.sleep(0.25)
         if browser.contexts:
-            return browser.contexts[0].new_page()
+            new_page = getattr(browser.contexts[0], "new_page", None)
+            if callable(new_page):
+                return new_page()
+            deadline = time.monotonic() + self.wait_seconds
+            while time.monotonic() < deadline:
+                for context in browser.contexts:
+                    if context.pages:
+                        return context.pages[-1]
+                self.sleep(0.25)
         raise ArticleContentFetchError(
             "No Chrome context available for article extraction",
             stage="page_open",
             details={"cdp_url": self.cdp_url},
         )
+
+    def _close_page(self, page) -> None:
+        if self._page is page:
+            self._page = None
+        closer = getattr(page, "close", None)
+        if callable(closer):
+            try:
+                closer()
+            except Exception:
+                pass
 
     def _navigate_with_retry(self, page, url: str):
         attempts = 2
@@ -478,4 +579,28 @@ def _content_from_page(page, response) -> ArticleContent:
         http_status=int(response_status or 0),
         title=page.title() or None,
         extracted_text=text,
+    )
+
+
+def _raise_if_source_blocked(url: str, content: ArticleContent) -> None:
+    title = (content.title or "").strip()
+    text = content.extracted_text or ""
+    normalized_title = title.lower()
+    normalized_text = text.lower()
+    blocked = (
+        "access to this page has been denied" in normalized_title
+        or "press & hold to confirm" in normalized_text
+        or ("human" in normalized_text and "not a bot" in normalized_text)
+    )
+    if not blocked:
+        return
+    raise ArticleContentFetchError(
+        "Source blocked article extraction with a human verification page",
+        stage="source_blocked",
+        details={
+            "url": url,
+            "skip_analysis": True,
+            "page_title": title,
+            "text_char_count": len(text),
+        },
     )

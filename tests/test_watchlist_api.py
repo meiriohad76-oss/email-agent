@@ -1,6 +1,6 @@
-from fastapi.testclient import TestClient
+﻿from fastapi.testclient import TestClient
 
-from email_article_analyzer.main import create_app
+from email_article_analyzer.application import create_app
 from email_article_analyzer.repositories import WatchlistRepository
 
 
@@ -32,6 +32,44 @@ def test_upload_watchlist_returns_columns_and_sample_rows(tmp_path):
     assert payload["ticker_column"] == "Ticker"
     items = WatchlistRepository(db_path).list_active_items()
     assert [item["normalized_ticker"] for item in items] == ["AAPL", "QQQ"]
+
+
+def test_upload_watchlist_reports_saved_tickers_and_duplicate_rows(tmp_path):
+    db_path = str(tmp_path / "app.db")
+    app = create_app(database_path=db_path)
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/watchlist/upload",
+        files={
+            "file": (
+                "portfolio.csv",
+                b"Symbol,Name\nAAPL,Apple lot 1\naapl,Apple lot 2\nMSFT,Microsoft\n",
+                "text/csv",
+            )
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["row_count"] == 3
+    assert payload["saved_count"] == 2
+    assert payload["portfolio_row_count"] == 3
+    assert payload["unique_ticker_count"] == 2
+    assert payload["duplicate_lot_count"] == 1
+    assert payload["duplicate_count"] == 1
+    assert payload["saved_tickers"] == ["AAPL", "MSFT"]
+    assert payload["duplicate_rows"] == [
+        {
+            "ticker": "aapl",
+            "normalized_ticker": "AAPL",
+            "reason": "Duplicate ticker in upload",
+        }
+    ]
+    assert payload["summary"] == (
+        "Saved 2 unique tickers and 3 portfolio rows from 3 rows; "
+        "preserved 1 duplicate row as a portfolio lot."
+    )
 
 
 def test_upload_watchlist_returns_bad_request_for_unsupported_file(tmp_path):

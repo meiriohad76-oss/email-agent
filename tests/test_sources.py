@@ -1,4 +1,4 @@
-from email_article_analyzer.sources import (
+﻿from email_article_analyzer.sources import (
     TRUSTED_SOURCES,
     match_source_for_sender,
     match_source_for_url,

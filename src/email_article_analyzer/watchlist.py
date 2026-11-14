@@ -108,6 +108,16 @@ class InvalidWatchlistRow:
 class WatchlistValidationResult:
     valid_rows: list[ValidWatchlistRow]
     invalid_rows: list[InvalidWatchlistRow]
+    portfolio_rows: list[ValidWatchlistRow]
+
+    @property
+    def portfolio_row_count(self) -> int:
+        return len(self.portfolio_rows)
+
+    @property
+    def duplicate_portfolio_row_count(self) -> int:
+        unique_tickers = {row.normalized_ticker for row in self.valid_rows}
+        return max(0, len(self.portfolio_rows) - len(unique_tickers))
 
 
 class WatchlistService:
@@ -123,6 +133,9 @@ class WatchlistService:
     ) -> WatchlistValidationResult:
         valid_rows: list[ValidWatchlistRow] = []
         invalid_rows: list[InvalidWatchlistRow] = []
+        portfolio_rows: list[ValidWatchlistRow] = []
+        seen_tickers: set[str] = set()
+        polygon_references: dict[str, dict | None] = {}
 
         for row in parsed.rows:
             raw_ticker = row.get(ticker_column, "")
@@ -130,7 +143,9 @@ class WatchlistService:
             if not normalized:
                 invalid_rows.append(InvalidWatchlistRow(raw_ticker, row, "Missing ticker"))
                 continue
-            polygon_reference = self.polygon_validator.validate_ticker(normalized)
+            if normalized not in polygon_references:
+                polygon_references[normalized] = self.polygon_validator.validate_ticker(normalized)
+            polygon_reference = polygon_references[normalized]
             if polygon_reference is None:
                 invalid_rows.append(
                     InvalidWatchlistRow(
@@ -140,15 +155,25 @@ class WatchlistService:
                     )
                 )
                 continue
-            valid_rows.append(
-                ValidWatchlistRow(
-                    raw_ticker=raw_ticker,
-                    normalized_ticker=normalized,
-                    values=row,
-                    polygon_reference=polygon_reference,
-                )
+            valid_row = ValidWatchlistRow(
+                raw_ticker=raw_ticker,
+                normalized_ticker=normalized,
+                values=row,
+                polygon_reference=polygon_reference,
             )
-        return WatchlistValidationResult(valid_rows=valid_rows, invalid_rows=invalid_rows)
+            portfolio_rows.append(valid_row)
+            if normalized in seen_tickers:
+                invalid_rows.append(
+                    InvalidWatchlistRow(raw_ticker, row, "Duplicate ticker in upload")
+                )
+                continue
+            seen_tickers.add(normalized)
+            valid_rows.append(valid_row)
+        return WatchlistValidationResult(
+            valid_rows=valid_rows,
+            invalid_rows=invalid_rows,
+            portfolio_rows=portfolio_rows,
+        )
 
     def replace_active_watchlist(
         self,
@@ -178,7 +203,20 @@ class WatchlistService:
                     "polygon_reference": json.dumps(row.polygon_reference, sort_keys=True),
                 }
             )
+        portfolio_lots = []
+        row_numbers = _row_numbers_by_identity(parsed.rows)
+        for row in result.portfolio_rows:
+            portfolio_lots.append(
+                {
+                    "row_number": row_numbers[id(row.values)],
+                    "ticker": row.raw_ticker,
+                    "normalized_ticker": row.normalized_ticker,
+                    "values": row.values,
+                    "polygon_reference": json.dumps(row.polygon_reference, sort_keys=True),
+                }
+            )
         self.repository.replace_items(upload_id, items)
+        self.repository.replace_portfolio_lots(upload_id, portfolio_lots)
         return result
 
 
@@ -192,3 +230,7 @@ def _optional_value(
         return None
     value = values.get(column_name)
     return value or None
+
+
+def _row_numbers_by_identity(rows: list[dict[str, str]]) -> dict[int, int]:
+    return {id(row): index + 2 for index, row in enumerate(rows)}

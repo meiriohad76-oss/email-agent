@@ -57,7 +57,7 @@ class GmailProvider(Protocol):
 def build_unread_trusted_query(sources: tuple[TrustedSource, ...]) -> str:
     senders = sorted({domain for source in sources for domain in source.sender_domains})
     sender_clause = " OR ".join(f"from:{domain}" for domain in senders)
-    return f"is:unread -label:{ANALYZED_LABEL} ({sender_clause})"
+    return f'is:unread -label:"{ANALYZED_LABEL}" -label:"{FAILED_LABEL}" ({sender_clause})'
 
 
 class GmailDiscoveryService:
@@ -104,9 +104,17 @@ class GmailDiscoveryService:
             )
 
     def mark_success(self, message_id: str) -> None:
+        marker = getattr(self.provider, "mark_analyzed", None)
+        if callable(marker):
+            marker(message_id, analyzed_label=ANALYZED_LABEL, failed_label=FAILED_LABEL)
+            return
         self.provider.mark_read(message_id)
         self.provider.add_label(message_id, ANALYZED_LABEL)
         self.provider.remove_label(message_id, FAILED_LABEL)
 
     def mark_failure(self, message_id: str) -> None:
+        marker = getattr(self.provider, "mark_failed", None)
+        if callable(marker):
+            marker(message_id, failed_label=FAILED_LABEL)
+            return
         self.provider.add_label(message_id, FAILED_LABEL)
