@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Email Article Analyzer Bridge",
-  "version": "0.1.16",
+  "version": "0.1.17",
   "description": "Opens article tabs in the user's Chrome window and sends extracted article text to the local analyzer.",
   "permissions": ["tabs", "scripting", "windows", "storage", "alarms"],
   "host_permissions": [

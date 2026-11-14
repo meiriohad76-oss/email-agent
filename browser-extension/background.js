@@ -629,6 +629,18 @@ function extractArticleText() {
   if (researchTableText) {
     text = `${researchTableText}\n${text}`.trim();
   }
+  // Agency: on a SA transcripts listing, expose the transcript article links (the page text alone has no URLs)
+  if (/seekingalpha\.com\/symbol\/[^/]+\/earnings\/transcripts/i.test(window.location.href)) {
+    const seenT = new Set();
+    const tLines = Array.from(document.querySelectorAll("a[href*='/article/']") || [])
+      .map((a) => [readableElementText(a).replace(/\s+/g, " ").trim(), String(a.getAttribute("href") || "").split("?")[0]])
+      .filter(([label, href]) => /earnings call transcript/i.test(label) && href && !seenT.has(href) && seenT.add(href))
+      .slice(0, 6)
+      .map(([label, href]) => `SA_TRANSCRIPT ${label} | ${href.startsWith("http") ? href : "https://seekingalpha.com" + href}`);
+    if (tLines.length) {
+      text = `${tLines.join("\n")}\n${text}`.trim();
+    }
+  }
   text = enrichSourceRatingText(window.location.href, text);
   return {
     final_url: window.location.href,
