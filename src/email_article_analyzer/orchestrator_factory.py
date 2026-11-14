@@ -63,6 +63,9 @@ def create_run_orchestrator(
             )
         else:
             client = openai_client_factory(config.openai_api_key)
+        if os.getenv("APP_OPENAI_USAGE_LOG", "1") == "1" and hasattr(client, "responses"):
+            from email_article_analyzer.usage_logging import UsageLoggingClient
+            client = UsageLoggingClient(client, config.database_path)
         article_analyzer = OpenAIArticleAnalyzer(
             client=client,
         )

@@ -603,43 +603,60 @@ class OpenAIRunReportSynthesizer:
         )
 
 
+REPORT_RATING_TYPES = {"quant", "analysts", "authors", "sell_side", "price_target", "rank", "overview", "ratings",
+                       "author_ratings", "sell_side_ratings"}
+
+
+def _clip(text: Any, n: int) -> Any:
+    return text[:n] + "…" if isinstance(text, str) and len(text) > n else text
+
+
 def _compact_articles_for_synthesis(articles: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Conclusions only (2026-11-14 cost cut: the full actionable_data tables made the report input ~460k chars)."""
     compact = []
     for article in articles:
         analysis = article.get("analysis") or {}
         if not analysis:
             continue
+        tickers = analysis.get("mentioned_ticker_details") or analysis.get("mentioned_tickers") or []
+        tickers = [t.get("ticker") if isinstance(t, dict) else t for t in tickers]
         compact.append(
             {
                 "title": (article.get("content") or {}).get("title") or article.get("subject"),
                 "source_key": article.get("source_key"),
-                "url": article.get("normalized_url"),
+                "url": (article.get("normalized_url") or "").split("?")[0],
                 "stance": analysis.get("stance"),
-                "sentiment": analysis.get("sentiment"),
-                "recommendation": analysis.get("recommendation"),
+                "recommendation": _clip(analysis.get("recommendation"), 200),
                 "confidence": analysis.get("confidence"),
-                "summary": analysis.get("summary"),
-                "tickers": analysis.get("mentioned_ticker_details") or analysis.get("mentioned_tickers"),
-                "evidence": (analysis.get("supporting_evidence") or [])[:3],
-                "price_targets": analysis.get("price_targets") or [],
-                "actionable_data": analysis.get("actionable_data") or [],
-                "actionable_signals": analysis.get("actionable_signals") or [],
+                "summary": _clip(analysis.get("summary"), 700),
+                "tickers": [t for t in tickers if t][:8],
+                "evidence": [_clip(e, 200) for e in (analysis.get("supporting_evidence") or [])[:2]],
+                "price_targets": [
+                    {k: pt.get(k) for k in ("ticker", "target", "price_target", "rating", "source") if pt.get(k) is not None}
+                    for pt in (analysis.get("price_targets") or [])[:4] if isinstance(pt, dict)
+                ],
+                "signals": [_clip(s.get("signal") or s.get("summary") or s.get("action"), 160) if isinstance(s, dict) else _clip(s, 160)
+                            for s in (analysis.get("actionable_signals") or [])[:3]],
             }
         )
     return compact[:40]
 
 
 def _compact_enrichments_for_synthesis(enrichments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Key rating fields only, not the raw research pages (statements, options, estimates were ~440k chars)."""
     compact = []
     for enrichment in enrichments:
-        compact.append(
-            {
-                "ticker": enrichment.get("ticker"),
-                "provider": enrichment.get("provider"),
-                "data_type": enrichment.get("data_type"),
-                "status": enrichment.get("status"),
-                "failure_reason": enrichment.get("failure_reason"),
-                "data": enrichment.get("data"),
-            }
-        )
-    return compact[:120]
+        data = enrichment.get("data") or {}
+        kind = str(data.get("rating_type") or enrichment.get("data_type"))
+        if enrichment.get("status") != "ready" or kind not in REPORT_RATING_TYPES:
+            continue
+        row = {"ticker": enrichment.get("ticker"), "provider": enrichment.get("provider"), "type": kind}
+        for k in ("rating", "score", "price_target", "price_target_upside_pct"):
+            if data.get(k) not in (None, ""):
+                row[k] = _clip(data[k], 60)
+        for k in ("fair_value", "fair_value_upside"):
+            v = data.get(k)
+            if isinstance(v, dict) and v.get("value") is not None:
+                row[k] = v["value"]
+        compact.append(row)
+    return compact[:200]
