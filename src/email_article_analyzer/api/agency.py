@@ -131,3 +131,31 @@ def opinions(request: Request, since: str = Query("1970-01-01")) -> dict[str, An
         ).fetchall()
     return {"opinions": [{**{k: r[k] for k in r.keys() if k != "mentioned_tickers_json"},
                           "tickers": json.loads(r["mentioned_tickers_json"] or "[]")} for r in rows]}
+
+
+@router.get("/routing")
+def routing(request: Request, days: int = Query(7, ge=1, le=90)) -> dict[str, Any]:
+    """Article routing health: paths taken, local-vs-GPT stance agreement, OpenAI spend (from openai_usage)."""
+    with _db(request) as conn:
+        rows = conn.execute(
+            """SELECT stance, json_extract(raw_response_json,'$.routing.path') AS path,
+                      json_extract(raw_response_json,'$.routing.reason') AS reason,
+                      json_extract(raw_response_json,'$.routing.local_stance') AS local_stance
+               FROM article_analyses WHERE created_at > datetime('now', ?)""", (f"-{days} days",)).fetchall()
+        has_usage = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='openai_usage'").fetchone()
+        usage = {"month_usd": 0.0, "window_usd": 0.0, "calls": 0}
+        if has_usage:
+            m = conn.execute("""SELECT coalesce(sum(est_cost_usd),0) usd, count(*) n FROM openai_usage
+                                WHERE created_at >= strftime('%Y-%m-01','now')""").fetchone()
+            w = conn.execute("SELECT coalesce(sum(est_cost_usd),0) usd FROM openai_usage WHERE created_at > datetime('now', ?)",
+                             (f"-{days} days",)).fetchone()
+            usage = {"month_usd": round(m["usd"], 4), "window_usd": round(w["usd"], 4), "calls": m["n"]}
+    paths: dict[str, int] = {}
+    pairs = agree = 0
+    for r in rows:
+        paths[r["path"] or "untagged"] = paths.get(r["path"] or "untagged", 0) + 1
+        if r["path"] == "cloud" and r["local_stance"]:
+            pairs += 1
+            agree += r["local_stance"] == r["stance"]
+    return {"days": days, "articles": len(rows), "paths": paths, "agreement_pairs": pairs,
+            "agreement": round(agree / pairs, 3) if pairs else None, "openai": usage}
