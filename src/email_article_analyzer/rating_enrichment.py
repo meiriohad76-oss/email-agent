@@ -229,6 +229,9 @@ def parse_seeking_alpha_ratings(ticker: str, text: str) -> list[dict[str, Any]]:
                 source_text=target_match.group(1),
             )
         )
+    ranking = parse_seeking_alpha_quant_ranking(normalized, text)
+    if ranking:
+        snapshots.append(ranking)
     return snapshots
 
 
@@ -1237,3 +1240,70 @@ def _implied_last_close(target: float | None, upside_pct: float | None) -> float
     if denominator == 0:
         return None
     return round(target / denominator, 2)
+
+
+_GRADE = re.compile(r"^(A\+|A|A-|B\+|B|B-|C\+|C|C-|D\+|D|D-|F)$")
+_DATE = re.compile(r"^(\d{2})/(\d{2})/(\d{4})$")
+_RATING_TOKENS = {"STRONG", "BUY", "HOLD", "SELL"}
+
+
+def parse_seeking_alpha_quant_ranking(ticker: str, text: str) -> dict[str, Any] | None:
+    """Quant ranking (overall / sector / industry) and the daily Quant Rating History table from the
+    /symbol/X/ratings/quant-ratings page (added 2026-11-14 for the agency: rating momentum + sector rank)."""
+    def rank(label: str):
+        m = re.search(label + r"\s*\n?\s*([0-9,]+)\s+out of\s+([0-9,]+)", text)
+        return (int(m.group(1).replace(",", "")), int(m.group(2).replace(",", ""))) if m else (None, None)
+    overall, sector, industry = rank("Ranked Overall"), rank("Ranked in Sector"), rank("Ranked in Industry")
+    sec_m = re.search(r"QUANT RANKING\s*\n\s*Sector\s*\n\s*([^\n]+)\s*\n\s*Industry\s*\n\s*([^\n]+)", text)
+    history = []
+    start = text.find("QUANT RATING HISTORY")
+    if start >= 0:
+        tokens = [t for t in re.split(r"[\t\n]+", text[start:start + 60000]) if t.strip()]
+        i = 0
+        while i < len(tokens) and len(history) < 400:
+            dm = _DATE.match(tokens[i].strip())
+            if not dm:
+                i += 1
+                continue
+            row = {"date": f"{dm.group(3)}-{dm.group(1)}-{dm.group(2)}"}
+            j = i + 1
+            try:
+                row["price"] = float(tokens[j].replace(",", "").replace("$", ""))
+                j += 1
+            except (ValueError, IndexError):
+                i += 1
+                continue
+            words = []
+            while j < len(tokens) and tokens[j].strip().upper() in _RATING_TOKENS:
+                words.append(tokens[j].strip().title())
+                j += 1
+            if j < len(tokens) and tokens[j].strip().upper().startswith("RATING:"):
+                if not words:
+                    words = [tokens[j].split(":", 1)[1].strip().title()]
+                j += 1
+            row["rating"] = " ".join(words) or None
+            try:
+                row["score"] = float(tokens[j])
+                j += 1
+            except (ValueError, IndexError):
+                row["score"] = None
+            grades = []
+            while j < len(tokens) and len(grades) < 5 and _GRADE.match(tokens[j].strip()):
+                grades.append(tokens[j].strip())
+                j += 1
+            for k, g in zip(("valuation", "growth", "profitability", "momentum", "eps_revisions"), grades):
+                row[k] = g
+            history.append(row)
+            i = j
+    if sector[0] is None and not history:
+        return None
+    pct = round((1 - (sector[0] - 1) / sector[1]) * 100, 1) if sector[0] and sector[1] else None
+    return _snapshot(
+        ticker=ticker, provider="seeking_alpha", rating_type="quant_ranking",
+        rating=f"Sector rank {sector[0]}/{sector[1]}" if sector[0] else "Quant history",
+        score=pct, price_target=None, source_text="Quant ranking and history",
+        extra={"rank_overall": overall[0], "total_overall": overall[1], "rank_sector": sector[0], "total_sector": sector[1],
+               "rank_industry": industry[0], "total_industry": industry[1], "sector_percentile": pct,
+               "sector": sec_m.group(1).strip() if sec_m else None, "industry": sec_m.group(2).strip() if sec_m else None,
+               "history": history},
+    )
