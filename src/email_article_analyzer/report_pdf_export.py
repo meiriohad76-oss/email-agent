@@ -201,6 +201,9 @@ def _find_chrome() -> str:
         Path("C:/Program Files (x86)/Google/Chrome/Application/chrome.exe"),
         Path("C:/Program Files/Microsoft/Edge/Application/msedge.exe"),
         Path("C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"),
+        Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+        Path("/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"),
+        Path("/Applications/Chromium.app/Contents/MacOS/Chromium"),
     ]
     for candidate in candidates:
         if candidate.exists():
@@ -496,6 +499,96 @@ def _rating_brief(rating: dict[str, Any]) -> str:
     return rendered
 
 
+def _priority_label(value: Any) -> str:
+    text = _clean(value)
+    if not text:
+        return "not set"
+    try:
+        number = float(text)
+    except ValueError:
+        return f"priority {text}"
+    if 0 < number <= 1:
+        return f"portfolio weight {number * 100:.2f}%"
+    return f"priority {text}"
+
+
+def _word_stance(text: str) -> str | None:
+    lowered = _clean(text).lower()
+    if re.search(r"\b(strong buy|buy|outperform)\b", lowered):
+        return "buy"
+    if re.search(r"\b(hold|neutral)\b", lowered):
+        return "hold"
+    if re.search(r"\b(strong sell|sell|underperform)\b", lowered):
+        return "sell"
+    return None
+
+
+def _source_stance(
+    ratings: list[dict[str, Any]],
+    provider: str,
+    rating_types: tuple[str, ...],
+) -> str:
+    for rating_type in rating_types:
+        for rating in ratings:
+            if rating.get("provider") != provider or rating.get("rating_type") != rating_type:
+                continue
+            stance = _word_stance(_clean(rating.get("rating"))) or _rating_stance(rating)
+            if stance:
+                return stance
+    return "no rating"
+
+
+def _source_blocks(card: dict[str, Any]) -> list[dict[str, Any]]:
+    ratings = card["rating_snapshots"]
+    return [
+        {
+            "label": "Seeking Alpha",
+            "stance": _source_stance(
+                ratings,
+                "seeking_alpha",
+                ("quant", "analysts", "wall_street"),
+            ),
+            "lines": [
+                ("Quant rating", card["sa_quant_rating"]),
+                ("Analysts rating", card["sa_analysts_rating"]),
+                ("Wall Street rating", card["sa_wall_street_rating"]),
+                ("Price target", card["sa_price_target"]),
+            ],
+        },
+        {
+            "label": "Zacks",
+            "stance": _source_stance(ratings, "zacks", ("rank",)),
+            "lines": [
+                ("Zacks Rank", card["zacks_rank"]),
+                ("Price target", card["zacks_price_target"]),
+            ],
+        },
+        {
+            "label": "Investing.com (InvestingPro)",
+            "stance": _source_stance(ratings, "investing_pro", ("forecast",)),
+            "lines": [
+                ("Financial health", card["investing_health"]),
+                ("Fair value", card["investing_fair_value"]),
+                ("Analyst target", card["investing_analyst_target"]),
+                ("Ratios", card["investing_ratios"]),
+            ],
+        },
+    ]
+
+
+def _source_block_html(block: dict[str, Any]) -> str:
+    lines = "".join(
+        f"<div class='action-line'><b>{_e(label)}:</b><span class='action-value'>{_e(value)}</span></div>"
+        for label, value in block["lines"]
+        if value
+    ) or "<div class='muted'>No data was captured from this source.</div>"
+    return f"""
+      <div class="source-block" style="border:1px solid #d9dee8;border-radius:8px;padding:8px 10px;margin:6px 0">
+        <div><b>{_e(block['label'])}</b> <span class="mono">stance: {_e(block['stance'])}</span></div>
+        {lines}
+      </div>"""
+
+
 def _action_card_grid(cards: list[dict[str, Any]]) -> str:
     if not cards:
         return "<p class='muted'>No ticker review sections were generated for this run.</p>"
@@ -531,23 +624,25 @@ def _action_card(card: dict[str, Any]) -> str:
     risks = _bullet_list(card["risks"], "No ticker-specific risks extracted.")
     evidence = _bullet_list(card["evidence"], "No ticker-specific evidence extracted.")
     article_notes = _ticker_article_notes(card["articles"])
+    source_html = "".join(_source_block_html(block) for block in card["source_blocks"])
     return f"""
     <article class="action-card">
       <div class="ticker-section-head">
         <div>
           <div class="action-title"><span class="mono">{_e(card['ticker'])}</span> {_e(card.get('company_name') or '')}</div>
-          <div class="action-subtitle">Asset: {_e(card.get('asset_type') or 'unknown')} - Sector: {_e(card.get('sector') or 'not set')} - Priority: {_e(card.get('priority') or 'not set')} - Articles: {_e(card['article_count'])}</div>
+          <div class="action-subtitle">Asset: {_e(card.get('asset_type') or 'unknown')} - Sector: {_e(card.get('sector') or 'not set')} - {_e(_priority_label(card.get('priority')))} - Articles: {_e(card['article_count'])}</div>
         </div>
         <div>{_badge(card["signal_label"])}</div>
       </div>
       <div class="ticker-headline"><b>Holistic read:</b> {_e(card["article_consensus"])} across {_e(card["article_count"])} article(s). Suggested action: {_e(card["suggested_action"])}. {_e(card["contradiction_summary"])}</div>
       <div class="ticker-facts">{rendered_facts}</div>
+      <div class="label">Extraction by source</div>{source_html}
       <div class="ticker-narrative">
         <div><div class="label">Catalysts</div>{catalysts}</div>
         <div><div class="label">Risks</div>{risks}</div>
       </div>
       <div class="label">Evidence</div>{evidence}
-      <div class="label">Source articles</div>{article_notes}
+      <div class="label">Related articles (stance from each article's own text)</div>{article_notes}
     </article>"""
 
 
@@ -589,9 +684,10 @@ def _ticker_action_cards(
             ticker_has_specific_data = bool(
                 ticker_actions or ticker_signals or ticker_targets or ticker_ratings
             )
-            if not ticker_has_specific_data:
+            has_source_data = bool(rating_data_by_ticker.get(ticker))
+            if not ticker_has_specific_data and not has_source_data:
                 continue
-            if not _ticker_belongs_in_primary_section(
+            if not has_source_data and not _ticker_belongs_in_primary_section(
                 ticker,
                 primary_tickers,
                 ticker_actions,
@@ -809,6 +905,7 @@ def _finalize_action_card(card: dict[str, Any]) -> dict[str, Any]:
     card["catalysts"] = _unique_text(card["catalysts"])
     card["risks"] = _unique_text(card["risks"])
     card["evidence"] = _unique_text(card["evidence"])
+    card["source_blocks"] = _source_blocks(card)
     return card
 
 

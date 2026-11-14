@@ -308,11 +308,14 @@ def _parse_seeking_alpha_visible_rating_blocks(
     for rating_type, label_pattern in label_patterns:
         if _has_rating_type(existing + snapshots, rating_type):
             continue
-        match = re.search(
-            rf"(({label_pattern})\s+{RATING_WORDS}(?:\s+([0-9]+(?:\.[0-9]+)?))?)",
-            compact,
-            flags=re.IGNORECASE,
+        matches = list(
+            re.finditer(
+                rf"(({label_pattern})\s+{RATING_WORDS}(?:\s+RATING:\s*(?:Strong Buy|Buy|Hold|Sell|Strong Sell|Neutral|Underperform|Outperform))?(?:\s+([0-9]+(?:\.[0-9]+)?))?)",
+                compact,
+                flags=re.IGNORECASE,
+            )
         )
+        match = next((item for item in matches if item.group(4)), matches[0] if matches else None)
         if not match:
             continue
         snapshots.append(

@@ -918,3 +918,79 @@ def test_export_run_pdf_endpoint_uses_persisted_polygon_snapshot_without_refetch
         "last_close": 205.5,
         "source": "polygon_previous_close",
     }
+
+
+def test_build_run_html_report_keeps_mention_only_ticker_when_source_ratings_exist():
+    run, counts, events, articles = sample_run_payload()
+    analysis = articles[0]["analysis"]
+    analysis["mentioned_ticker_details"] = [
+        {
+            "ticker": "ORCL",
+            "company_name": "Oracle Corporation",
+            "in_portfolio": True,
+            "asset_type": "stock",
+            "polygon_reference": {},
+        }
+    ]
+    analysis["actionable_data"] = []
+    analysis["actionable_signals"] = []
+    analysis["price_targets"] = []
+    analysis["rating_snapshots"] = []
+
+    html = build_run_html_report(
+        run,
+        counts,
+        events,
+        articles,
+        rating_data_by_ticker={
+            "ORCL": [
+                {
+                    "ticker": "ORCL",
+                    "provider": "seeking_alpha",
+                    "rating_type": "quant",
+                    "rating": "Hold",
+                    "score": 3.46,
+                    "price_target": None,
+                    "currency": "USD",
+                    "source_text": "QUANT RATING HOLD RATING: HOLD 3.46",
+                },
+                {
+                    "ticker": "ORCL",
+                    "provider": "zacks",
+                    "rating_type": "rank",
+                    "rating": "Rank #2 Buy",
+                    "score": 2,
+                    "price_target": None,
+                    "currency": "USD",
+                    "source_text": "Zacks Rank #2 (Buy)",
+                },
+                {
+                    "ticker": "ORCL",
+                    "provider": "investing_pro",
+                    "rating_type": "forecast",
+                    "rating": "Buy",
+                    "score": None,
+                    "price_target": None,
+                    "currency": "USD",
+                    "source_text": "Buy",
+                },
+            ],
+        },
+    )
+
+    text = _plain_text(html)
+    assert "ORCL" in text
+    assert "Seeking Alpha stance: hold" in text
+    assert "Quant rating: Hold (3.46)" in text
+    assert "Zacks stance: buy" in text
+    assert "Investing.com (InvestingPro) stance: buy" in text
+
+
+def test_priority_label_shows_portfolio_weights_as_percent():
+    from email_article_analyzer.report_pdf_export import _priority_label
+
+    assert _priority_label("0.012292919757409211") == "portfolio weight 1.23%"
+    assert _priority_label("0.5") == "portfolio weight 50.00%"
+    assert _priority_label("3") == "priority 3"
+    assert _priority_label("high") == "priority high"
+    assert _priority_label(None) == "not set"

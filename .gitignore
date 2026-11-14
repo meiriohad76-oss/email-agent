@@ -6,6 +6,7 @@ env*.txt
 *.envbackup*
 .envbackup*
 .venv/
+.venv-windows/
 __pycache__/
 .pytest_cache/
 .playwright-cli/

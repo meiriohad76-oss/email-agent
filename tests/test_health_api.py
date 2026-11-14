@@ -1,4 +1,5 @@
 import base64
+from pathlib import PurePath
 
 from fastapi.testclient import TestClient
 
@@ -47,7 +48,9 @@ def test_create_app_uses_article_chrome_profile_for_source_logins(tmp_path):
 
     assert "--remote-debugging-port=9222" in app.state.source_login_launcher.extra_args
     assert any(
-        arg.startswith("--user-data-dir=") and arg.endswith("data\\user-chrome-profile")
+        arg.startswith("--user-data-dir=")
+        and PurePath(arg.removeprefix("--user-data-dir=")).parts[-2:]
+        == ("data", "user-chrome-profile")
         for arg in app.state.source_login_launcher.extra_args
     )
 
