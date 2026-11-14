@@ -83,7 +83,10 @@ def create_run_orchestrator(
                     model=os.getenv("APP_LOCAL_ARTICLE_MODEL", "gemma4:12b"),
                 ),
                 cloud=article_analyzer,
-                holdings=lambda: _active_watchlist_tickers(config.database_path),
+                # holdings = the analyzer's own portfolio list PLUS the agency's nightly holdings file (stays exact
+                # when Meiri buys/sells: the agency syncs Seeking Alpha every night)
+                holdings=(lambda agency_holdings=file_tickers(os.getenv("APP_HOLDINGS_TICKERS_FILE", "~/MeiriServer/Agency/holdings_tickers.txt")):
+                          _active_watchlist_tickers(config.database_path) | agency_holdings()),
                 watchlist=file_tickers(os.getenv("APP_WATCH_TICKERS_FILE", "~/MeiriServer/Agency/watch_tickers.txt")),
                 escalate_below=float(os.getenv("APP_ESCALATE_BELOW", "0.9")),
             )
